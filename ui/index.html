@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LocalNotes</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 12h1M7 8v8M11 5v14M15 9v6M19 7v10M21 12h0"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2.5"/><path d="m16 10 5-3v10l-5-3"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m14 6 4 4"/></symbol>
+  <symbol id="i-lines" viewBox="0 0 24 24"><path d="M4 6h16M4 10h10M4 14h16M4 18h8"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.2A8 8 0 1 1 20 12z"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></symbol>
+  <symbol id="i-headphones" viewBox="0 0 24 24"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="14" width="5" height="7" rx="2"/><rect x="16" y="14" width="5" height="7" rx="2"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="16" rx="2.5"/><path d="M4 10h16M9 3v4M15 3v4"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6.5 6.5 0 0 1 3.5 6"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M4 12 20 4l-6 16-2.5-6.5z"/></symbol>
+  <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+  <symbol id="i-sidebar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M15 4v16"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.6-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5L20 16M20 20v-4h-4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5z"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6.5 10h1M10.5 10h1M14.5 10h1M6.5 14h11"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></symbol>
+</svg>
+
+<div id="app">
+  <aside id="sidebar">
+    <div class="brand">
+      <div class="brand-mark"><svg class="i"><use href="#i-wave"/></svg></div>
+      <div class="brand-name">LocalNotes<small>Private meeting notes</small></div>
+    </div>
+    <button id="btn-new" class="btn-new"><span class="rec-dot"></span>New note<kbd>Ctrl N</kbd></button>
+    <button id="btn-search" class="search-trigger"><svg class="i"><use href="#i-search"/></svg>Search notes…<kbd>Ctrl K</kbd></button>
+    <nav class="nav">
+      <button id="nav-home" class="nav-item active"><svg class="i"><use href="#i-home"/></svg>Home<span id="nav-tasks" class="count"></span></button>
+    </nav>
+    <div id="list" class="list"></div>
+    <div class="side-foot">
+      <button id="detect-status" class="detect-status" title="Meeting detection"><span class="pulse"></span><span id="detect-text">Listening for meetings</span></button>
+      <button id="btn-theme" class="icon-btn" title="Toggle theme"><svg class="i"><use href="#i-moon"/></svg></button>
+      <button id="btn-settings" class="icon-btn" title="Settings (Ctrl ,)"><svg class="i"><use href="#i-gear"/></svg></button>
+    </div>
+  </aside>
+
+  <main id="main">
+    <div id="banner" class="banner" hidden>
+      <div id="banner-chip" class="app-chip"><svg class="i"><use href="#i-video"/></svg></div>
+      <div class="banner-text"><b id="banner-title">Meeting detected</b><span>Take notes for this call?</span></div>
+      <button id="banner-yes" class="btn primary sm">Start notes</button>
+      <button id="banner-no" class="icon-btn" title="Dismiss"><svg class="i"><use href="#i-x"/></svg></button>
+    </div>
+
+    <section id="view-home" class="view"></section>
+
+    <section id="view-meeting" class="view" hidden>
+      <div id="doc-scroll" class="doc-scroll">
+        <article class="doc">
+          <textarea id="title" class="doc-title" rows="1" spellcheck="false" placeholder="Untitled meeting"></textarea>
+          <div id="chips" class="chips"></div>
+          <div id="stepper"></div>
+          <div id="toolbar" class="toolbar">
+            <div id="view-seg" class="seg">
+              <span class="thumb"></span>
+              <button data-v="mine"><svg class="i"><use href="#i-pen"/></svg>My notes</button>
+              <button data-v="ai"><svg class="i"><use href="#i-sparkle"/></svg>AI notes<span id="ai-badge" class="badge" hidden></span></button>
+            </div>
+            <span id="save-ind" class="save-ind"></span>
+            <span class="spacer"></span>
+            <button id="btn-followup" class="btn sm" title="Draft a follow-up email"><svg class="i"><use href="#i-mail"/></svg><span>Follow-up</span></button>
+            <button id="btn-generate" class="btn sm"><svg class="i"><use href="#i-sparkle"/></svg><span>Generate</span></button>
+            <button id="btn-drawer" class="icon-btn" title="Transcript & Ask (Ctrl J)"><svg class="i"><use href="#i-sidebar"/></svg></button>
+            <button id="btn-more" class="icon-btn" title="More"><svg class="i"><use href="#i-more"/></svg></button>
+          </div>
+          <div id="pane-mine">
+            <textarea id="editor" class="editor" spellcheck="true"
+              placeholder="Jot down anything during the call — names, decisions, half-thoughts.&#10;&#10;Rough is perfect. After the call, AI turns these and the transcript into clean notes."></textarea>
+          </div>
+          <div id="pane-ai" hidden></div>
+        </article>
+      </div>
+
+      <aside id="drawer" class="drawer">
+        <div class="drawer-head">
+          <div id="drawer-seg" class="seg">
+            <span class="thumb"></span>
+            <button data-t="transcript"><svg class="i"><use href="#i-lines"/></svg>Transcript</button>
+            <button data-t="ask"><svg class="i"><use href="#i-chat"/></svg>Ask</button>
+          </div>
+          <button id="btn-drawer-close" class="icon-btn" title="Close (Ctrl J)"><svg class="i"><use href="#i-x"/></svg></button>
+        </div>
+        <div class="drawer-body">
+          <div id="tab-transcript" class="transcript"></div>
+          <button id="jump-live" class="jump-live" hidden><svg class="i"><use href="#i-arrow-down"/></svg>Jump to latest</button>
+          <div id="tab-ask" hidden style="display:flex;flex-direction:column;flex:1;min-height:0">
+            <div id="chat" class="chat"></div>
+            <div class="ask-box">
+              <textarea id="ask-input" rows="1" placeholder="Ask anything about this meeting…"></textarea>
+              <button id="ask-send" class="btn primary sm" title="Send (Enter)"><svg class="i"><use href="#i-send"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <div id="dock" class="dock" hidden>
+      <div class="rec"><span class="dot"></span><span id="dock-time">00:00</span></div>
+      <div class="divider"></div>
+      <div class="meters">
+        <div class="meter">Me<canvas id="meter-me" width="168" height="48"></canvas></div>
+        <div class="meter">Them<canvas id="meter-them" width="168" height="48"></canvas></div>
+      </div>
+      <span id="dock-pending" class="pending"></span>
+      <button id="dock-open" class="icon-btn" title="Go to live note" hidden><svg class="i"><use href="#i-file"/></svg></button>
+      <button id="dock-pause" class="btn-pause" title="Pause recording (off the record)"><svg class="i"><use href="#i-pause"/></svg><span>Pause</span></button>
+      <button id="dock-stop" class="btn-stop"><span class="sq"></span>Stop</button>
+    </div>
+  </main>
+</div>
+
+<div id="menu" class="menu" hidden></div>
+
+<div id="palette" class="overlay" hidden>
+  <div class="palette">
+    <div class="palette-input"><svg class="i"><use href="#i-search"/></svg><input id="palette-input" placeholder="Search meetings, notes and transcripts, or type a command…" autocomplete="off"></div>
+    <div id="palette-results" class="palette-results"></div>
+    <div class="palette-foot"><span><kbd>↑</kbd> <kbd>↓</kbd> navigate</span><span><kbd>Enter</kbd> open</span><span><kbd>Esc</kbd> close</span></div>
+  </div>
+</div>
+
+<dialog id="settings">
+  <div class="set-head"><h2>Settings</h2><button class="icon-btn" data-close title="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <div class="set-body">
+    <div class="set-section">
+      <h3>Meetings</h3>
+      <div class="row"><div class="row-text"><b>Detect calls automatically</b><span>Zoom, Microsoft Teams, Google Meet, Webex, Slack and Discord calls.</span></div><label class="switch"><input type="checkbox" name="detect_meetings"></label></div>
+      <div class="row"><div class="row-text"><b>Start recording without asking</b><span>Otherwise a small widget asks “Start notes?” when a call begins.</span></div><label class="switch"><input type="checkbox" name="auto_record"></label></div>
+      <div class="row"><div class="row-text"><b>Stop when the call ends</b><span>Recording stops when the meeting app releases the microphone.</span></div><label class="switch"><input type="checkbox" name="auto_stop"></label></div>
+      <div class="row"><div class="row-text"><b>Floating widget</b><span>Shows on top of other apps when a call is detected and while recording.</span></div><label class="switch"><input type="checkbox" name="show_widget"></label></div>
+    </div>
+    <div class="set-section">
+      <h3>Transcription</h3>
+      <div class="row"><div class="row-text"><b>Live transcript model</b><span>Runs during the call.</span></div>
+        <select name="whisper_model">
+          <option value="tiny.en">Tiny — lightest</option>
+          <option value="base.en">Base — balanced (recommended)</option>
+          <option value="small.en">Small — sharper, more CPU</option>
+          <option value="small">Small multilingual</option>
+        </select></div>
+      <div class="row"><div class="row-text"><b>After-call accuracy pass</b><span>Re-transcribes the call with a stronger model, then rewrites the notes.</span></div>
+        <select name="refine_model">
+          <option value="large-v3-turbo">Large v3 Turbo — best (recommended)</option>
+          <option value="distil-large-v3">Distil Large v3 — faster, English</option>
+          <option value="small.en">Small — quickest</option>
+          <option value="off">Off</option>
+        </select></div>
+      <div class="row" style="padding-bottom:2px"><div class="row-text"><b>Custom vocabulary</b><span>Names, products and jargon to spell correctly — separated by commas.</span></div></div>
+      <textarea name="vocabulary" class="vocab" placeholder="e.g. Priya, Rahul, LogiSys, HubSpot, SKU, EBITDA"></textarea>
+      <div class="row"><div class="row-text"><b>Record my microphone</b><span>Labelled “Me” in the transcript.</span></div><label class="switch"><input type="checkbox" name="capture_mic"></label></div>
+      <div class="row"><div class="row-text"><b>Record computer audio</b><span>Everyone else on the call, labelled “Them”.</span></div><label class="switch"><input type="checkbox" name="capture_system"></label></div>
+      <div class="row"><div class="row-text"><b>Keep call audio</b><span>Lets you re-run “Improve transcript” later. Uses ~2 MB per minute.</span></div><label class="switch"><input type="checkbox" name="keep_audio"></label></div>
+    </div>
+    <div class="set-section">
+      <h3>Speakers &amp; voices</h3>
+      <div class="row"><div class="row-text"><b>Identify speakers</b><span>After each call, separate voices and name people whose voice LocalNotes knows.</span></div><label class="switch"><input type="checkbox" name="identify_speakers"></label></div>
+      <div class="row"><div class="row-text"><b>Your name</b><span>Your own voice is learned automatically from your microphone.</span></div><input type="text" name="your_name" placeholder="Your name"></div>
+      <div class="row" style="padding-bottom:4px"><div class="row-text"><b>Voice profiles</b><span>Tag someone once by clicking their name in a transcript — they're recognised from then on. Stored only on this PC.</span></div></div>
+      <div id="voice-list" class="voice-list"></div>
+    </div>
+    <div class="set-section">
+      <h3>AI</h3>
+      <div class="row"><div class="row-text"><b>Write notes automatically</b><span>As soon as the call ends.</span></div><label class="switch"><input type="checkbox" name="auto_notes"></label></div>
+      <div class="row"><div class="row-text"><b>Default template</b><span>“Auto” picks one from the meeting title — e.g. “1:1”, “standup”, “interview”, “demo”.</span></div>
+        <select name="default_template" id="default-template"></select></div>
+      <div class="row" style="padding-bottom:4px"><div class="row-text"><b>Templates</b><span>Your own note formats. Built-ins can be used as a starting point.</span></div>
+        <button id="tpl-new" class="btn sm"><svg class="i"><use href="#i-plus"/></svg>New template</button></div>
+      <div id="tpl-list" class="voice-list"></div>
+      <div class="row"><div class="row-text"><b>Ollama model</b><span id="ollama-line">Runs locally — nothing leaves this PC.</span></div>
+        <input type="text" name="ollama_model" list="ollama-models"><datalist id="ollama-models"></datalist></div>
+    </div>
+    <div class="set-section">
+      <h3>App</h3>
+      <div class="row"><div class="row-text"><b>Appearance</b></div>
+        <div id="theme-pick" class="theme-pick"><button data-theme="system">System</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div></div>
+      <div class="row"><div class="row-text"><b>Keep running in the tray</b><span>Closing the window keeps meeting detection on.</span></div><label class="switch"><input type="checkbox" name="close_to_tray"></label></div>
+      <div class="row"><div class="row-text"><b>Launch at sign-in</b><span>Start quietly in the tray when Windows starts.</span></div><label class="switch"><input type="checkbox" name="launch_at_login"></label></div>
+      <div class="row"><div class="row-text"><b>Start / stop recording</b><span>Works from any app, even when LocalNotes is hidden.</span></div>
+        <input type="text" name="hotkey_record" class="hotkey-input" readonly placeholder="Click, then press keys"></div>
+      <div class="row"><div class="row-text"><b>Pause / resume</b><span>Take part of the call off the record.</span></div>
+        <input type="text" name="hotkey_pause" class="hotkey-input" readonly placeholder="Click, then press keys"></div>
+      <div id="hotkey-warning" class="sys-check" hidden></div>
+    </div>
+    <div class="set-section">
+      <h3>Privacy</h3>
+      <div class="row"><div class="row-text"><b id="enc-title">Encrypted on this PC</b><span id="enc-text">Notes, transcripts and voice profiles are encrypted with AES-256. The key is protected by your Windows account, so the data can't be read if the files are copied elsewhere.</span></div><div class="enc-badge">AES-256</div></div>
+    </div>
+  </div>
+  <div class="set-foot"><span class="note">Only record people who know they're being recorded. <span id="app-version"></span></span><button class="btn" data-close>Cancel</button><button id="settings-save" class="btn primary">Save changes</button></div>
+</dialog>
+
+<dialog id="followup" class="sheet">
+  <div class="set-head"><h2>Follow-up email</h2><button class="icon-btn" data-close title="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <div class="fu-body">
+    <div class="fu-row">
+      <div id="fu-tone" class="theme-pick"><button data-tone="friendly">Friendly</button><button data-tone="formal">Formal</button><button data-tone="brief">Brief</button></div>
+      <button id="fu-regen" class="btn sm ghost"><svg class="i"><use href="#i-refresh"/></svg>Rewrite</button>
+    </div>
+    <label class="fu-label">Subject<input id="fu-subject" type="text" placeholder="Subject"></label>
+    <label class="fu-label">Message<textarea id="fu-text" rows="14" placeholder="Writing your email…"></textarea></label>
+  </div>
+  <div class="set-foot"><span id="fu-status" class="note">Drafted locally from your notes — review before sending.</span>
+    <button id="fu-copy" class="btn"><svg class="i"><use href="#i-copy"/></svg>Copy</button>
+    <button id="fu-open" class="btn primary"><svg class="i"><use href="#i-mail"/></svg>Open in mail app</button></div>
+</dialog>
+
+<dialog id="tpl-editor" class="sheet">
+  <div class="set-head"><h2 id="tpl-title">New template</h2><button class="icon-btn" data-close title="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <div class="fu-body">
+    <label class="fu-label">Name<input id="tpl-name" type="text" placeholder="e.g. Weekly client check-in" maxlength="60"></label>
+    <label class="fu-label">Short description<input id="tpl-desc" type="text" placeholder="What these notes focus on" maxlength="140"></label>
+    <label class="fu-label">Structure — the sections the AI should write, and any instructions
+      <textarea id="tpl-prompt" rows="11" placeholder="## Client mood&#10;## What they asked for&#10;## Risks to the account&#10;## Action items"></textarea></label>
+    <div class="tpl-tip">Tip: write one <code>## Heading</code> per section, with a few words on what belongs there. Start from a built-in template below to save time.</div>
+    <div id="tpl-starters" class="tpl-starters"></div>
+  </div>
+  <div class="set-foot"><button id="tpl-delete" class="btn ghost danger-text">Delete</button><span class="note"></span>
+    <button class="btn" data-close>Cancel</button><button id="tpl-save" class="btn primary">Save template</button></div>
+</dialog>
+
+<div id="toasts" class="toasts"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

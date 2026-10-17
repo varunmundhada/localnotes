@@ -1,0 +1,32 @@
+name: Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile Python
+        run: python -m compileall -q .
+      - name: Check UI scripts
+        run: node --check ui/app.js
+      - name: Import app modules and run database/encryption checks
+        shell: pwsh
+        run: |
+          $env:LOCALNOTES_DATA = "$env:RUNNER_TEMP\ln"
+          python -c "import app, audio, db, detector, hotkeys, securestore, speakers, summarize, templates, transcribe, tray; print('imports ok')"
+          python -c "import os, tempfile, pathlib; from db import DB; d = DB(pathlib.Path(tempfile.mkdtemp()) / 't.db', os.urandom(32)); m = d.create_meeting('budget review'); d.reindex(m); assert d.search('budg'); print('encrypted db + search ok')"

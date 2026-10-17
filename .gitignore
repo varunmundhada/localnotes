@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Local data — never commit meetings, audio, keys or downloaded models.
+# (The app stores these under %APPDATA%\LocalNotes; these patterns are a safety net.)
+*.db
+*.db-wal
+*.db-shm
+*.wav
+*.key
+*.dek
+models/
+data/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Environment / secrets
+.env
+.env.*

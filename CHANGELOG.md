@@ -1,0 +1,28 @@
+# Changelog
+
+All notable changes to this project are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+### Planned
+- Read participant names directly from Zoom / Teams / Meet windows to name first-time speakers.
+- Calendar integration for meeting titles and attendees.
+- Ask across all meetings.
+
+## [0.1.0] — 2026-10-18
+
+First release.
+
+### Added
+- Two-sided recording (microphone + system audio) with live Whisper transcription.
+- After-call accuracy pass with Whisper large-v3-turbo (batched for CPU).
+- Speaker separation and persistent voice profiles; rename a speaker once to have them recognised in future meetings.
+- Local AI notes via Ollama, with eight built-in templates and custom templates.
+- Ask questions about a meeting; follow-up email drafts with tone options.
+- Automatic call detection for Zoom, Teams, Google Meet, Webex, Slack and Discord, with a floating widget.
+- System tray, launch at sign-in, global hotkeys, pause / resume.
+- Editable transcript with custom-vocabulary suggestions.
+- SQLCipher (AES-256) database encryption with a DPAPI-protected key; automatic migration of unencrypted databases.
+- Full-text search, action items across meetings, command palette, light and dark themes.
+- `setup.ps1` installer and `selfcheck.py` install verification.

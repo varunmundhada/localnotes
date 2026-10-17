@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LocalNotes widget</title>
+<style>
+  :root {
+    --bg: #161513; --line: #2e2c28; --text: #f1eee8; --muted: #9a958b;
+    --accent: #4fc59a; --accent-ink: #0c1410; --live: #ff6369; --them: #a391f2;
+    font: 13px/1.3 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overflow: hidden; user-select: none; }
+  body { display: flex; align-items: center; padding: 0 10px 0 14px; gap: 12px; border: 1px solid var(--line); }
+  [hidden] { display: none !important; }
+  svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .chip { width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; background: #24302b; color: var(--accent); flex: none; position: relative; }
+  .chip.zoom { background: #1b2a45; color: #7fa8ff; } .chip.teams { background: #25243f; color: #9da0f5; } .chip.meet { background: #16301f; color: #62cf8f; }
+  .chip::after { content: ""; position: absolute; inset: -3px; border-radius: 13px; border: 1.5px solid currentColor; opacity: 0; animation: ring 2.2s ease-out infinite; }
+  @keyframes ring { 0% { transform: scale(.9); opacity: .7; } 100% { transform: scale(1.3); opacity: 0; } }
+  .text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .text b { font-size: 13.5px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .text span { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  button { font: inherit; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .primary { height: 34px; padding: 0 14px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-weight: 650; }
+  .primary:hover { filter: brightness(1.08); }
+  .stop { height: 34px; padding: 0 14px; border-radius: 10px; background: var(--live); color: #fff; font-weight: 650; }
+  .stop i { width: 9px; height: 9px; border-radius: 2px; background: #fff; }
+  .ghost { width: 32px; height: 32px; border-radius: 9px; justify-content: center; background: transparent; color: var(--muted); }
+  .ghost:hover { background: #2a2825; color: var(--text); }
+  .rec { display: flex; align-items: center; gap: 8px; font-weight: 650; font-variant-numeric: tabular-nums; font-size: 14px; }
+  .rec .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--live); box-shadow: 0 0 0 4px rgb(255 99 105 / .22); animation: blink 1.4s infinite; }
+  @keyframes blink { 50% { opacity: .3; } }
+  canvas { width: 70px; height: 26px; flex: none; }
+  body.paused .rec .dot { background: var(--muted); box-shadow: none; animation: none; }
+  body.paused canvas { opacity: .3; }
+</style>
+</head>
+<body>
+  <!-- detected -->
+  <div id="chip" class="chip"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2.5"/><path d="m16 10 5-3v10l-5-3"/></svg></div>
+  <div id="det-text" class="text"><b id="det-title">Meeting detected</b><span>Take notes for this call?</span></div>
+  <button id="btn-start" class="primary">Start notes</button>
+  <button id="btn-dismiss" class="ghost" title="Not now"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+
+  <!-- recording -->
+  <div id="rec" class="rec" hidden><span class="dot"></span><span id="time">00:00</span></div>
+  <div id="rec-text" class="text" hidden><b id="rec-title">Recording</b><span id="rec-sub">LocalNotes is listening</span></div>
+  <canvas id="meter" width="140" height="52" hidden></canvas>
+  <button id="btn-pause" class="ghost" title="Pause" hidden><svg viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></svg></button>
+  <button id="btn-open" class="ghost" title="Open notes" hidden><svg viewBox="0 0 24 24"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg></button>
+  <button id="btn-stop" class="stop" hidden><i></i>Stop</button>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let api, mode = "", hist = new Array(22).fill(0);
+const clock = (s) => { s = Math.floor(s); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60; const p = (n) => String(n).padStart(2, "0"); return h ? `${h}:${p(m)}:${p(x)}` : `${p(m)}:${p(x)}`; };
+
+function setMode(m) {
+  if (m === mode) return;
+  mode = m;
+  const det = m === "detected", rec = m === "recording";
+  ["chip", "det-text", "btn-start", "btn-dismiss"].forEach((id) => $(id).hidden = !det);
+  ["rec", "rec-text", "meter", "btn-pause", "btn-open", "btn-stop"].forEach((id) => $(id).hidden = !rec);
+}
+function draw(levels) {
+  const v = Math.max(levels.Me || 0, levels.Them || 0);
+  hist.push(v); hist.shift();
+  const c = $("meter"), ctx = c.getContext("2d"), w = c.width, h = c.height, bw = w / hist.length;
+  ctx.clearRect(0, 0, w, h);
+  hist.forEach((x, i) => {
+    const bh = Math.max(4, Math.min(h, Math.sqrt(x) * h * 4.2));
+    ctx.globalAlpha = 0.35 + 0.65 * (i / hist.length);
+    ctx.fillStyle = (levels.Them || 0) > (levels.Me || 0) ? "#a391f2" : "#4fc59a";
+    ctx.beginPath(); ctx.roundRect(i * bw + bw * .2, (h - bh) / 2, bw * .6, bh, Math.min(bw * .3, bh / 2)); ctx.fill();
+  });
+}
+async function tick() {
+  try {
+    const st = await api.pill_state();
+    setMode(st.mode);
+    if (st.mode === "detected") {
+      $("det-title").textContent = `${st.title} detected`;
+      $("chip").className = `chip ${["zoom", "teams", "meet"].includes(st.app) ? st.app : ""}`;
+    } else if (st.mode === "recording") {
+      $("time").textContent = clock(st.elapsed);
+      $("rec-title").textContent = st.title;
+      $("rec-sub").textContent = st.paused ? "Paused — off the record" : "LocalNotes is listening";
+      document.body.classList.toggle("paused", !!st.paused);
+      $("btn-pause").innerHTML = st.paused ? PLAY : PAUSE;
+      $("btn-pause").title = st.paused ? "Resume" : "Pause";
+      draw(st.paused ? {} : (st.levels || {}));
+    }
+  } catch {}
+}
+const PAUSE = '<svg viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></svg>';
+const PLAY = '<svg viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5z"/></svg>';
+$("btn-pause").onclick = () => api.toggle_pause();
+$("btn-start").onclick = () => api.start_from_detection();
+$("btn-dismiss").onclick = () => api.dismiss_detection();
+$("btn-open").onclick = () => api.show_main();
+$("btn-stop").onclick = async () => { $("btn-stop").disabled = true; await api.stop_recording(); $("btn-stop").disabled = false; };
+window.addEventListener("pywebviewready", () => { api = window.pywebview.api; tick(); setInterval(tick, 150); });
+</script>
+</body>
+</html>
