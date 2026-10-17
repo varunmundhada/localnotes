@@ -5,6 +5,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- New app logo and icons: sidebar, window and taskbar, tray (turns red while recording), shortcuts and README.
+  Generated from `logo.py`, so every size and format comes from the same shapes.
+- LocalNotes now has its own taskbar identity instead of grouping under Python.
+
 ### Planned
 - Read participant names directly from Zoom / Teams / Meet windows to name first-time speakers.
 - Calendar integration for meeting titles and attendees.

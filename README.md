@@ -1,6 +1,8 @@
-# LocalNotes
+<p align="center"><img src="assets/logo.svg" width="112" alt="LocalNotes logo"></p>
 
-**Private AI meeting notes that never leave your PC.**
+<h1 align="center">LocalNotes</h1>
+
+<p align="center"><b>Private AI meeting notes that never leave your PC.</b></p>
 
 LocalNotes records your calls, transcribes them, recognises who's speaking, and turns your rough notes into clean,
 structured meeting notes — entirely on your own Windows machine. No accounts, no cloud, no bots joining your meetings.

@@ -125,7 +125,7 @@ if (-not $NoShortcuts) {
         $s.TargetPath = Join-Path $Root ".venv\Scripts\pythonw.exe"
         $s.Arguments = '"' + (Join-Path $Root "app.py") + '"'
         $s.WorkingDirectory = $Root
-        $s.IconLocation = "C:\Windows\System32\shell32.dll,138"
+        $s.IconLocation = Join-Path $Root "assets\localnotes.ico"
         $s.Description = "Private, local meeting notes"
         $s.Save()
     }

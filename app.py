@@ -34,6 +34,8 @@ DATA_DIR = Path(os.environ.get("LOCALNOTES_DATA") or Path(os.environ.get("APPDAT
 SETTINGS_PATH = DATA_DIR / "settings.json"
 AUDIO_DIR = DATA_DIR / "audio"
 UI_DIR = APP_DIR / "ui"
+ICON_PATH = APP_DIR / "assets" / "localnotes.ico"
+APP_USER_MODEL_ID = "VarunMundhada.LocalNotes"   # own taskbar identity instead of grouping under Python
 STARTUP_LNK = Path(os.environ.get("APPDATA", "")) / r"Microsoft\Windows\Start Menu\Programs\Startup\LocalNotes.lnk"
 TASK_RE = re.compile(r"^(\s*[-*]\s+\[)( |x|X)(\]\s+)(.*)$")
 _user32 = ctypes.windll.user32
@@ -206,10 +208,10 @@ class Api:
         ps = (
             "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:LN_LNK);"
             "$s.TargetPath=$env:LN_PY;$s.Arguments=$env:LN_ARGS;$s.WorkingDirectory=$env:LN_DIR;"
-            "$s.IconLocation='C:\\Windows\\System32\\shell32.dll,138';$s.Save()"
+            "$s.IconLocation=$env:LN_ICON;$s.Save()"
         )
         env = {**os.environ, "LN_LNK": str(STARTUP_LNK), "LN_PY": str(pythonw),
-               "LN_ARGS": f'"{APP_DIR / "app.py"}" --background', "LN_DIR": str(APP_DIR)}
+               "LN_ARGS": f'"{APP_DIR / "app.py"}" --background', "LN_DIR": str(APP_DIR), "LN_ICON": str(ICON_PATH)}
         subprocess.run(["powershell", "-NoProfile", "-Command", ps], env=env,
                        creationflags=subprocess.CREATE_NO_WINDOW, check=False)
 
@@ -870,8 +872,23 @@ def _tasks(md: str) -> list[tuple[bool, str]]:
     return out
 
 
+def _apply_icon(window):
+    """WinForms windows default to Python's icon; use ours in the taskbar, Alt+Tab and title bar."""
+    try:
+        from System import Action
+        from System.Drawing import Icon
+        form = window.native
+        form.Invoke(Action(lambda: setattr(form, "Icon", Icon(str(ICON_PATH)))))
+    except Exception:
+        pass
+
+
 def main():
     background = "--background" in sys.argv
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+    except Exception:
+        pass
     api = Api()
     dark = api._settings["theme"] == "dark" or (api._settings["theme"] == "system" and system_prefers_dark())
     main_win = webview.create_window(
@@ -909,6 +926,8 @@ def main():
         return False
 
     main_win.events.closing += on_main_closing
+    main_win.events.shown += lambda: _apply_icon(main_win)
+    pill_win.events.shown += lambda: _apply_icon(pill_win)
     pill_win.events.closing += lambda: api._quitting
 
     def on_start():

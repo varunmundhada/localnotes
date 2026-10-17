@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="LocalNotes">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2fd39b"/><stop offset="1" stop-color="#0b5e4b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="260" cy="220" r="620" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.28"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="22" stdDeviation="30" flood-color="#04281e" flood-opacity="0.42"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="232" fill="url(#tile)"/>
+  <rect width="1024" height="1024" rx="232" fill="url(#glow)"/>
+  <g transform="rotate(-9 512.0 512.0)" filter="url(#shadow)">
+    <path d="M358,196 H574 L724,346 V778 Q724,836 666,836 H358 Q300,836 300,778 V254 Q300,196 358,196 Z" fill="#fff"/>
+    <path d="M574,196 L588,332 L724,346 Z" fill="#cfeee2"/>
+    <rect x="368" y="318" width="236" height="34" rx="17" fill="#cfeee2"/><rect x="368" y="392" width="164" height="34" rx="17" fill="#cfeee2"/>
+    <rect x="332" y="535" width="40" height="150" rx="20" fill="#1f8a66"/><rect x="396" y="485" width="40" height="250" rx="20" fill="#30807c"/><rect x="460" y="445" width="40" height="330" rx="20" fill="#417693"/><rect x="524" y="495" width="40" height="230" rx="20" fill="#516ba9"/><rect x="588" y="465" width="40" height="290" rx="20" fill="#6261c0"/><rect x="652" y="540" width="40" height="140" rx="20" fill="#7357d6"/>
+  </g>
+  <path d="M800,126 Q800,238 912,238 Q800,238 800,350 Q800,238 688,238 Q800,238 800,126 Z" fill="#fff"/><path d="M690,74 Q690,120 736,120 Q690,120 690,166 Q690,120 644,120 Q690,120 690,74 Z" fill="#fff"/>
+</svg>

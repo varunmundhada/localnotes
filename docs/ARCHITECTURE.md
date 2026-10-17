@@ -19,6 +19,7 @@ LocalNotes is a single Python process. The UI is plain HTML/CSS/JS rendered by
 | `hotkeys.py` | System-wide hotkeys via `RegisterHotKey` on a dedicated message-loop thread. |
 | `tray.py` | System-tray icon and menu (pystray). |
 | `selfcheck.py` | Install verification used by `setup.ps1`. |
+| `logo.py` | The logo, defined once and rendered to `assets/` (SVG, PNG, multi-size ICO), `ui/logo.svg`, and the tray icon at runtime. Run `python logo.py` after changing it. |
 | `ui/` | `index.html` + `app.js` + `style.css` for the main window; `pill.html` for the floating widget. |
 
 ## Recording and the post-call pipeline
