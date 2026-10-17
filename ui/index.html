@@ -150,17 +150,27 @@
   </div>
 </div>
 
-<dialog id="settings">
-  <div class="set-head"><h2>Settings</h2><button class="icon-btn" data-close title="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+<dialog id="settings" aria-labelledby="settings-title">
+  <div class="set-head"><h2 id="settings-title">Settings</h2><span id="set-saved" class="set-saved" aria-live="polite"></span><button class="icon-btn" data-close title="Close (Esc)" aria-label="Close settings"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <div class="set-layout">
+  <nav class="set-nav" aria-label="Settings sections">
+    <button data-sec="sec-meetings" class="active"><svg class="i"><use href="#i-video"/></svg>Meetings</button>
+    <button data-sec="sec-transcription"><svg class="i"><use href="#i-lines"/></svg>Transcription</button>
+    <button data-sec="sec-speakers"><svg class="i"><use href="#i-users"/></svg>Speakers</button>
+    <button data-sec="sec-ai"><svg class="i"><use href="#i-sparkle"/></svg>AI &amp; templates</button>
+    <button data-sec="sec-shortcuts"><svg class="i"><use href="#i-keyboard"/></svg>Shortcuts</button>
+    <button data-sec="sec-app"><svg class="i"><use href="#i-sun"/></svg>Appearance</button>
+    <button data-sec="sec-privacy"><svg class="i"><use href="#i-lock"/></svg>Privacy</button>
+  </nav>
   <div class="set-body">
-    <div class="set-section">
+    <div class="set-section" id="sec-meetings">
       <h3>Meetings</h3>
       <div class="row"><div class="row-text"><b>Detect calls automatically</b><span>Zoom, Microsoft Teams, Google Meet, Webex, Slack and Discord calls.</span></div><label class="switch"><input type="checkbox" name="detect_meetings"></label></div>
       <div class="row"><div class="row-text"><b>Start recording without asking</b><span>Otherwise a small widget asks “Start notes?” when a call begins.</span></div><label class="switch"><input type="checkbox" name="auto_record"></label></div>
       <div class="row"><div class="row-text"><b>Stop when the call ends</b><span>Recording stops when the meeting app releases the microphone.</span></div><label class="switch"><input type="checkbox" name="auto_stop"></label></div>
       <div class="row"><div class="row-text"><b>Floating widget</b><span>Shows on top of other apps when a call is detected and while recording.</span></div><label class="switch"><input type="checkbox" name="show_widget"></label></div>
     </div>
-    <div class="set-section">
+    <div class="set-section" id="sec-transcription">
       <h3>Transcription</h3>
       <div class="row"><div class="row-text"><b>Live transcript model</b><span>Runs during the call.</span></div>
         <select name="whisper_model">
@@ -182,15 +192,15 @@
       <div class="row"><div class="row-text"><b>Record computer audio</b><span>Everyone else on the call, labelled “Them”.</span></div><label class="switch"><input type="checkbox" name="capture_system"></label></div>
       <div class="row"><div class="row-text"><b>Keep call audio</b><span>Lets you re-run “Improve transcript” later. Uses ~2 MB per minute.</span></div><label class="switch"><input type="checkbox" name="keep_audio"></label></div>
     </div>
-    <div class="set-section">
+    <div class="set-section" id="sec-speakers">
       <h3>Speakers &amp; voices</h3>
       <div class="row"><div class="row-text"><b>Identify speakers</b><span>After each call, separate voices and name people whose voice LocalNotes knows.</span></div><label class="switch"><input type="checkbox" name="identify_speakers"></label></div>
       <div class="row"><div class="row-text"><b>Your name</b><span>Your own voice is learned automatically from your microphone.</span></div><input type="text" name="your_name" placeholder="Your name"></div>
       <div class="row" style="padding-bottom:4px"><div class="row-text"><b>Voice profiles</b><span>Tag someone once by clicking their name in a transcript — they're recognised from then on. Stored only on this PC.</span></div></div>
       <div id="voice-list" class="voice-list"></div>
     </div>
-    <div class="set-section">
-      <h3>AI</h3>
+    <div class="set-section" id="sec-ai">
+      <h3>AI &amp; templates</h3>
       <div class="row"><div class="row-text"><b>Write notes automatically</b><span>As soon as the call ends.</span></div><label class="switch"><input type="checkbox" name="auto_notes"></label></div>
       <div class="row"><div class="row-text"><b>Default template</b><span>“Auto” picks one from the meeting title — e.g. “1:1”, “standup”, “interview”, “demo”.</span></div>
         <select name="default_template" id="default-template"></select></div>
@@ -200,26 +210,36 @@
       <div class="row"><div class="row-text"><b>Ollama model</b><span id="ollama-line">Runs locally — nothing leaves this PC.</span></div>
         <input type="text" name="ollama_model" list="ollama-models"><datalist id="ollama-models"></datalist></div>
     </div>
-    <div class="set-section">
-      <h3>App</h3>
-      <div class="row"><div class="row-text"><b>Appearance</b></div>
+    <div class="set-section" id="sec-shortcuts">
+      <h3>Shortcuts</h3>
+      <div class="row"><div class="row-text"><b>Start / stop recording</b><span>Works from any app, even when LocalNotes is hidden.</span></div>
+        <input type="text" name="hotkey_record" class="hotkey-input" readonly placeholder="Click, then press keys" aria-label="Start or stop recording shortcut"></div>
+      <div class="row"><div class="row-text"><b>Pause / resume</b><span>Take part of the call off the record.</span></div>
+        <input type="text" name="hotkey_pause" class="hotkey-input" readonly placeholder="Click, then press keys" aria-label="Pause or resume shortcut"></div>
+      <div id="hotkey-warning" class="sys-check" hidden></div>
+      <div class="kbd-table">
+        <span>New note</span><kbd>Ctrl N</kbd><span>Search &amp; commands</span><kbd>Ctrl K</kbd>
+        <span>Transcript panel</span><kbd>Ctrl J</kbd><span>My notes ⇄ AI notes</span><kbd>Ctrl E</kbd>
+        <span>Copy notes</span><kbd>Ctrl Shift C</kbd><span>Settings</span><kbd>Ctrl ,</kbd>
+      </div>
+    </div>
+    <div class="set-section" id="sec-app">
+      <h3>Appearance &amp; app</h3>
+      <div class="row"><div class="row-text"><b>Theme</b></div>
         <div id="theme-pick" class="theme-pick"><button data-theme="system">System</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div></div>
       <div class="row"><div class="row-text"><b>Style</b><span>Glass: frosted panels over a soft aurora. Classic: flat and solid.</span></div>
         <div id="style-pick" class="theme-pick"><button data-ui="glass">Glass</button><button data-ui="classic">Classic</button></div></div>
       <div class="row"><div class="row-text"><b>Keep running in the tray</b><span>Closing the window keeps meeting detection on.</span></div><label class="switch"><input type="checkbox" name="close_to_tray"></label></div>
       <div class="row"><div class="row-text"><b>Launch at sign-in</b><span>Start quietly in the tray when Windows starts.</span></div><label class="switch"><input type="checkbox" name="launch_at_login"></label></div>
-      <div class="row"><div class="row-text"><b>Start / stop recording</b><span>Works from any app, even when LocalNotes is hidden.</span></div>
-        <input type="text" name="hotkey_record" class="hotkey-input" readonly placeholder="Click, then press keys"></div>
-      <div class="row"><div class="row-text"><b>Pause / resume</b><span>Take part of the call off the record.</span></div>
-        <input type="text" name="hotkey_pause" class="hotkey-input" readonly placeholder="Click, then press keys"></div>
-      <div id="hotkey-warning" class="sys-check" hidden></div>
     </div>
-    <div class="set-section">
+    <div class="set-section" id="sec-privacy">
       <h3>Privacy</h3>
-      <div class="row"><div class="row-text"><b id="enc-title">Encrypted on this PC</b><span id="enc-text">Notes, transcripts and voice profiles are encrypted with AES-256. The key is protected by your Windows account, so the data can't be read if the files are copied elsewhere.</span></div><div class="enc-badge">AES-256</div></div>
+      <div class="row"><div class="row-text"><b id="enc-title">Encrypted on this PC</b><span id="enc-text">Notes, transcripts and voice profiles are encrypted with AES-256. The key is protected by your Windows account, so the data can't be read if the files are copied elsewhere.</span></div><div class="enc-badge"><svg class="i"><use href="#i-lock"/></svg>AES-256</div></div>
+      <p class="set-legal">Only record people who know they're being recorded, and follow the laws that apply to you. <span id="app-version"></span></p>
     </div>
   </div>
-  <div class="set-foot"><span class="note">Only record people who know they're being recorded. <span id="app-version"></span></span><button class="btn" data-close>Cancel</button><button id="settings-save" class="btn primary">Save changes</button></div>
+  </div>
+  <div class="set-foot"><span class="note">Changes save automatically.</span><button class="btn primary" data-close>Done</button></div>
 </dialog>
 
 <dialog id="followup" class="sheet">

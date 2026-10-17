@@ -31,7 +31,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const pad = (n) => String(n).padStart(2, "0");
 const clock = (sec) => { sec = Math.max(0, Math.floor(sec)); const h = Math.floor(sec / 3600), m = Math.floor(sec / 60) % 60, s = sec % 60; return h ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`; };
 const debounce = (fn, ms) => { let h; return (...a) => { clearTimeout(h); h = setTimeout(() => fn(...a), ms); }; };
-const timeOf = (t) => new Date(t * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+const timeOf = (t) => new Date(t * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 const dayOf = (t) => new Date(t * 1000).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 const minutes = (m) => Math.max(1, Math.round(((m.ended_at || Date.now() / 1000) - m.started_at) / 60));
 const durLabel = (mins) => mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60 ? (mins % 60) + " min" : ""}`.trim() : `${mins} min`;
@@ -193,7 +193,7 @@ function setSeg(seg, attr, value) {
 
 // ---------------------------------------------------------------- sidebar
 async function loadList() {
-  const rows = await api.list_meetings();
+  const rows = (await api.list_meetings()).filter((m) => !pendingDeletes.has(m.id));
   if (!rows.length) {
     $("list").innerHTML = `<div class="list-empty">Your meetings will appear here.</div>`;
     return;
@@ -205,14 +205,39 @@ async function loadList() {
     const live = m.id === S.recordingId;
     const sub = live ? `<span style="color:var(--live);font-weight:600">Recording…</span>`
       : `${timeOf(m.started_at)}${m.ended_at ? " · " + durLabel(minutes(m)) : ""}${APP_NAMES[m.app] ? " · " + APP_NAMES[m.app] : ""}`;
-    html += `<div class="m-item ${m.id === S.currentId ? "active" : ""}" data-id="${m.id}">${appChip(m.app, live)}
-      <div class="m-body"><div class="m-title">${esc(m.title)}</div><div class="m-sub">${sub}</div></div></div>`;
+    html += `<div class="m-item ${m.id === S.currentId ? "active" : ""}" data-id="${m.id}" role="button" tabindex="0"
+        aria-label="${esc(m.title)}">${appChip(m.app, live)}
+      <div class="m-body"><div class="m-title">${esc(m.title)}</div><div class="m-sub">${sub}</div></div>
+      <button class="icon-btn m-more" data-more="${m.id}" title="More actions" aria-label="More actions for ${esc(m.title)}">${ic("more")}</button></div>`;
   }
   $("list").innerHTML = html;
 }
+function meetingMenu(anchor, id) {
+  const live = id === S.recordingId;
+  const items = [
+    { icon: "file", label: "Open", run: () => openMeeting(id) },
+    { icon: "pen", label: "Rename", run: () => openMeeting(id).then(() => { $("title").focus(); $("title").select(); }) },
+    { icon: "copy", label: "Copy notes", run: () => openMeeting(id).then(copyNotes) },
+  ];
+  if (!live) items.push("-", { icon: "trash", label: "Delete", danger: true, run: () => deleteMeeting(id) });
+  openMenu(anchor, items);
+}
 $("list").addEventListener("click", (e) => {
+  const more = e.target.closest("[data-more]");
+  if (more) { e.stopPropagation(); return $("menu").hidden ? meetingMenu(more, Number(more.dataset.more)) : closeMenu(); }
   const it = e.target.closest(".m-item");
   if (it) openMeeting(Number(it.dataset.id));
+});
+$("list").addEventListener("contextmenu", (e) => {
+  const it = e.target.closest(".m-item"); if (!it) return;
+  e.preventDefault();
+  meetingMenu(it.querySelector("[data-more]"), Number(it.dataset.id));
+});
+// keyboard: Enter/Space opens focused list items and cards
+document.addEventListener("keydown", (e) => {
+  if ((e.key !== "Enter" && e.key !== " ") || !e.target.matches?.(".m-item, [data-open][tabindex]")) return;
+  e.preventDefault();
+  e.target.click();
 });
 $("nav-home").addEventListener("click", () => showHome());
 
@@ -258,6 +283,8 @@ function heroHtml() {
 async function renderHome() {
   const [home, st] = await Promise.all([api.get_home(), api.get_state()]);
   S.ollama = st.ollama;
+  home.recent = home.recent.filter((m) => !pendingDeletes.has(m.id));
+  home.tasks = home.tasks.filter((t) => !pendingDeletes.has(t.meeting_id));
   const s = home.stats;
   $("nav-tasks").textContent = s.open_tasks || "";
   const date = new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
@@ -284,7 +311,7 @@ async function renderHome() {
         <div class="t-text"><div class="t-main">${inline(t.text)}</div><div class="t-meta" data-open="${t.meeting_id}">${esc(t.meeting)} · ${dayOf(t.started_at)}</div></div>
       </div>`).join("") : `<div class="empty-card">${ic("check")}<br>No open action items. Nice.</div>`;
     const recent = home.recent.map((m) => `
-      <div class="card recent" data-open="${m.id}">${appChip(m.app, m.live)}
+      <div class="card recent" data-open="${m.id}" role="button" tabindex="0">${appChip(m.app, m.live)}
         <div style="min-width:0"><div class="r-title">${esc(m.title)}</div>
         <div class="r-sub">${dayOf(m.started_at)} · ${m.live ? "recording now" : timeOf(m.started_at) + (m.ended_at ? " · " + durLabel(minutes(m)) : "")}</div>
         ${m.summary ? `<div class="r-sum">${inline(m.summary)}</div>` : ""}</div></div>`).join("");
@@ -365,7 +392,7 @@ function renderChips() {
   if (m.speakers?.length) {
     const names = m.speakers.map((s) => s.name);
     const shown = names.slice(0, 4).join(", ") + (names.length > 4 ? ` +${names.length - 4}` : "");
-    chips.push(`<button class="chip clickable" data-act="people" title="People — click to rename">${ic("users")}${esc(shown)}</button>`);
+    chips.push(`<button class="chip clickable" data-act="people" title="People — click to rename">${ic("users")}${esc(shown)}<svg class="i chev"><use href="#i-chev"/></svg></button>`);
   } else {
     const speakers = new Set((m.segments || []).map((s) => s.speaker));
     if (speakers.size) chips.push(`<span class="chip">${ic("users")}${esc([...speakers].sort().join(" + "))}</span>`);
@@ -416,7 +443,7 @@ function openTemplateMenu(anchor) {
   menu.style.top = `${r.bottom + 6}px`;
   menu.style.left = `${Math.max(12, Math.min(window.innerWidth - menu.offsetWidth - 12, r.right - menu.offsetWidth))}px`;
   menu.onclick = async (ev) => {
-    if (ev.target.closest("[data-manage]")) { closeMenu(); return openSettings("tpl-new"); }
+    if (ev.target.closest("[data-manage]")) { closeMenu(); return openSettings("sec-ai"); }
     const b = ev.target.closest("[data-tpl]"); if (!b) return;
     closeMenu();
     const tid = b.dataset.tpl;
@@ -846,19 +873,26 @@ function openMenu(anchor, items) {
     `<button data-i="${i}" class="${it.danger ? "danger" : ""}">${ic(it.icon)}${esc(it.label)}${it.kbd ? `<kbd>${it.kbd}</kbd>` : ""}</button>`).join("");
   menu.hidden = false;
   const r = anchor.getBoundingClientRect();
-  menu.style.top = `${r.bottom + 6}px`;
-  menu.style.left = `${Math.min(window.innerWidth - menu.offsetWidth - 12, r.right - menu.offsetWidth)}px`;
+  const below = r.bottom + 6 + menu.offsetHeight < window.innerHeight - 8;
+  menu.style.top = `${below ? r.bottom + 6 : Math.max(8, r.top - menu.offsetHeight - 6)}px`;
+  menu.style.left = `${Math.max(8, Math.min(window.innerWidth - menu.offsetWidth - 12, r.right - menu.offsetWidth))}px`;
+  menu.querySelector("button")?.focus({ preventScroll: true });
   menu.onclick = (e) => {
     const b = e.target.closest("button[data-i]"); if (!b) return;
     const it = items[Number(b.dataset.i)];
-    if (it.danger && !b.classList.contains("armed")) {
-      b.classList.add("armed"); b.lastChild.textContent = "Click again to delete"; return;
-    }
     closeMenu(); it.run();
   };
 }
 function closeMenu() { $("menu").hidden = true; }
-document.addEventListener("mousedown", (e) => { if (!$("menu").hidden && !e.target.closest("#menu, #btn-more, .spk, [data-act]")) closeMenu(); });
+document.addEventListener("mousedown", (e) => { if (!$("menu").hidden && !e.target.closest("#menu, #btn-more, .spk, [data-act], [data-more]")) closeMenu(); });
+// arrow keys move through menu items; Esc is handled by the global key handler
+$("menu").addEventListener("keydown", (e) => {
+  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+  const items = [...$("menu").querySelectorAll("button")];
+  const i = items.indexOf(document.activeElement);
+  items[(i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
+  e.preventDefault();
+});
 
 $("btn-more").addEventListener("click", (e) => {
   if (!$("menu").hidden) return closeMenu();
@@ -870,7 +904,7 @@ $("btn-more").addEventListener("click", (e) => {
   ];
   if (!live) items.push({ icon: "sparkle", label: m.ai_notes ? "Regenerate AI notes" : "Generate AI notes", run: generate });
   if (m.has_audio && !live) items.push({ icon: "headphones", label: "Improve transcript", run: () => api.refine_meeting(m.id) });
-  if (!live) items.push("-", { icon: "trash", label: "Delete meeting", danger: true, run: deleteMeeting });
+  if (!live) items.push("-", { icon: "trash", label: "Delete meeting", danger: true, run: () => deleteMeeting(m.id) });
   openMenu(e.currentTarget, items);
 });
 async function copyNotes() {
@@ -878,10 +912,32 @@ async function copyNotes() {
   const text = `# ${m.title}\n\n${(m.ai_notes || m.user_notes || "").trim()}\n`;
   toast((await copyText(text)) ? "Notes copied" : "Couldn't copy", { kind: "ok" });
 }
-async function deleteMeeting() {
-  const id = S.meeting?.id; if (!id) return;
-  if (await api.delete_meeting(id)) { toast("Meeting deleted"); showHome(); loadList(); }
-  else toast("This meeting is still being recorded or processed — try again in a moment", { kind: "error" });
+// Delete now, undo for a few seconds: the meeting is hidden at once and only removed when the toast expires.
+const UNDO_MS = 6000;
+const pendingDeletes = new Map();   // meeting id -> timer
+function deleteMeeting(id) {
+  if (!id) return;
+  if (S.pipeline[id] || id === S.recordingId) {
+    return toast("This meeting is still being recorded or processed — try again in a moment", { kind: "error" });
+  }
+  const title = (S.meeting?.id === id ? S.meeting.title : $(`.m-item[data-id="${id}"] .m-title`)?.textContent) || "Meeting";
+  pendingDeletes.set(id, setTimeout(async () => {
+    pendingDeletes.delete(id);
+    if (!(await api.delete_meeting(id))) {
+      toast("Couldn't delete — the meeting is still being processed", { kind: "error" });
+      loadList();
+    }
+  }, UNDO_MS));
+  if (S.meeting?.id === id) showHome(); else if (S.homeVisible) renderHome();
+  loadList();
+  toast(`Deleted “${title}”`, {
+    timeout: UNDO_MS,
+    action: { label: "Undo", run: () => {
+      clearTimeout(pendingDeletes.get(id)); pendingDeletes.delete(id);
+      loadList(); if (S.homeVisible) renderHome();
+      toast("Meeting restored");
+    } },
+  });
 }
 
 // ---------------------------------------------------------------- recording + dock
@@ -988,7 +1044,7 @@ function closePalette() { $("palette").hidden = true; }
 const updatePalette = debounce(async () => {
   const q = $("palette-input").value.trim();
   const acts = ACTIONS.filter((a) => !q || a.title.toLowerCase().includes(q.toLowerCase()));
-  const meetings = q ? await api.search(q) : (await api.list_meetings()).slice(0, 6);
+  const meetings = (q ? await api.search(q) : (await api.list_meetings()).slice(0, 6)).filter((m) => !pendingDeletes.has(m.id));
   pItems = [
     ...acts.map((a) => ({ ...a, group: "Actions" })),
     ...meetings.map((m) => ({
@@ -1025,34 +1081,81 @@ $("palette").addEventListener("mousedown", (e) => { if (e.target === $("palette"
 $("btn-search").addEventListener("click", openPalette);
 
 // ---------------------------------------------------------------- settings
-let pendingTheme = "system";
-let pendingStyle = "glass";
-async function openSettings(focusId) {
+// Every control saves the moment it changes — no Save/Cancel step to forget.
+async function openSettings(section) {
   const st = await api.get_state();
   S.settings = st.settings; S.ollama = st.ollama;
   const dlg = $("settings");
   await renderTemplates();
   $("enc-title").textContent = st.encrypted ? "Encrypted on this PC" : "Not encrypted";
-  $("app-version").textContent = `· LocalNotes v${st.version}`;
+  $("app-version").textContent = `LocalNotes v${st.version}`;
   const hk = $("hotkey-warning");
   hk.hidden = !st.hotkeys_failed?.length;
   if (st.hotkeys_failed?.length) hk.innerHTML = `${ic("alert")}<span>${esc(st.hotkeys_failed.join(", ").toUpperCase())} is already used by another app. Click the box and press a different shortcut.</span>`;
-  if (focusId) setTimeout(() => $(focusId)?.scrollIntoView({ block: "center", behavior: "smooth" }), 80);
   dlg.querySelectorAll("[name]").forEach((el) => {
     const v = S.settings[el.name];
     if (el.type === "checkbox") el.checked = !!v; else el.value = v ?? "";
   });
-  pendingTheme = S.settings.theme;
-  pendingStyle = S.settings.ui_style || "glass";
-  dlg.querySelectorAll("#theme-pick button").forEach((b) => b.classList.toggle("active", b.dataset.theme === pendingTheme));
-  dlg.querySelectorAll("#style-pick button").forEach((b) => b.classList.toggle("active", b.dataset.ui === pendingStyle));
+  markPick("theme-pick", "theme", S.settings.theme);
+  markPick("style-pick", "ui", S.settings.ui_style || "glass");
   $("ollama-models").innerHTML = (st.ollama.models || []).map((m) => `<option value="${esc(m)}">`).join("");
   renderVoices();
   $("ollama-line").textContent = !st.ollama.running ? "Ollama isn't running — start the Ollama app."
     : st.ollama.model_ready ? "Runs locally — nothing leaves this PC." : "Model not downloaded yet.";
+  $("set-saved").classList.remove("show");
   dlg.showModal();
+  goToSection(section || "sec-meetings", false);
 }
 $("btn-settings").addEventListener("click", () => openSettings());
+
+function markPick(id, attr, value) {
+  $(id).querySelectorAll("button").forEach((b) => {
+    const on = b.dataset[attr] === value;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-pressed", on);
+  });
+}
+let savedTimer;
+async function saveSetting(patch) {
+  const rec = patch.hotkey_record ?? S.settings.hotkey_record;
+  const pause = patch.hotkey_pause ?? S.settings.hotkey_pause;
+  if (rec && rec === pause) {
+    toast("Start/stop and pause need different shortcuts", { kind: "error" });
+    return false;
+  }
+  S.settings = await api.save_settings(patch);
+  const s = $("set-saved");
+  s.innerHTML = `${ic("check")}Saved`;
+  s.classList.add("show");
+  clearTimeout(savedTimer);
+  savedTimer = setTimeout(() => s.classList.remove("show"), 1600);
+  renderDetectStatus();
+  if (S.homeVisible) renderHome();
+  return true;
+}
+// switches, selects and text fields (text fields save when you leave them)
+$("settings").addEventListener("change", (e) => {
+  const el = e.target.closest("[name]");
+  if (!el || el.classList.contains("hotkey-input")) return;
+  saveSetting({ [el.name]: el.type === "checkbox" ? el.checked : el.value.trim() });
+});
+
+// section rail: click to jump, and it follows your scrolling
+function goToSection(id, smooth = true) {
+  const sec = $(id); if (!sec) return;
+  $("settings").querySelector(".set-body").scrollTo({ top: sec.offsetTop - 8, behavior: smooth ? "smooth" : "auto" });
+  setActiveSection(id);
+}
+function setActiveSection(id) {
+  $("settings").querySelectorAll(".set-nav button").forEach((b) => b.classList.toggle("active", b.dataset.sec === id));
+}
+$("settings").querySelector(".set-nav").addEventListener("click", (e) => { const b = e.target.closest("[data-sec]"); if (b) goToSection(b.dataset.sec); });
+$("settings").querySelector(".set-body").addEventListener("scroll", (e) => {
+  const body = e.target, secs = [...body.querySelectorAll(".set-section")];
+  const atEnd = body.scrollTop + body.clientHeight >= body.scrollHeight - 4;
+  const cur = atEnd ? secs[secs.length - 1] : secs.filter((s) => s.offsetTop - 40 <= body.scrollTop).pop() || secs[0];
+  setActiveSection(cur.id);
+}, { passive: true });
 
 // templates manager
 async function renderTemplates() {
@@ -1119,8 +1222,10 @@ document.querySelectorAll(".hotkey-input").forEach((inp) => {
       : /^F\d{1,2}$/.test(e.key) ? e.key.toLowerCase()
       : e.key === " " ? "space" : null;
     if (!key) return;
-    inp.value = [...mods, key].join("+");
+    const combo = [...mods, key].join("+");
+    inp.value = combo;
     inp.blur();
+    saveSetting({ [inp.name]: combo }).then((ok) => { if (!ok) inp.value = inp.dataset.prev || ""; });
   });
 });
 
@@ -1142,33 +1247,17 @@ $("voice-list").addEventListener("click", async (e) => {
 });
 $("theme-pick").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
-  pendingTheme = b.dataset.theme;
-  $("theme-pick").querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b));
-  applyTheme(pendingTheme);
+  markPick("theme-pick", "theme", b.dataset.theme);
+  applyTheme(b.dataset.theme);
+  saveSetting({ theme: b.dataset.theme });
 });
 $("style-pick").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
-  pendingStyle = b.dataset.ui;
-  $("style-pick").querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b));
-  applyStyle(pendingStyle);
+  markPick("style-pick", "ui", b.dataset.ui);
+  applyStyle(b.dataset.ui);
+  saveSetting({ ui_style: b.dataset.ui });
 });
-const revertLook = () => { applyTheme(S.settings.theme); applyStyle(S.settings.ui_style); };
-$("settings").addEventListener("click", (e) => { if (e.target.closest("[data-close]")) { revertLook(); $("settings").close(); } });
-$("settings").addEventListener("cancel", revertLook);
-$("settings-save").addEventListener("click", async () => {
-  const next = { theme: pendingTheme, ui_style: pendingStyle };
-  $("settings").querySelectorAll("[name]").forEach((el) => { next[el.name] = el.type === "checkbox" ? el.checked : el.value.trim(); });
-  if (next.hotkey_record && next.hotkey_record === next.hotkey_pause) {
-    return toast("Start/stop and pause need different shortcuts", { kind: "error" });
-  }
-  S.settings = await api.save_settings(next);
-  applyTheme(S.settings.theme);
-  applyStyle(S.settings.ui_style);
-  $("settings").close();
-  toast("Settings saved");
-  renderDetectStatus();
-  if (S.homeVisible) renderHome();
-});
+$("settings").addEventListener("click", (e) => { if (e.target.closest("[data-close]")) $("settings").close(); });
 
 // ---------------------------------------------------------------- keyboard
 document.addEventListener("keydown", (e) => {
@@ -1364,6 +1453,8 @@ window.onEvent = (e) => {
 // ---------------------------------------------------------------- boot
 window.addEventListener("pywebviewready", async () => {
   api = window.pywebview.api;
+  // icon-only buttons: give screen readers the same label sighted users get from the tooltip
+  document.querySelectorAll("button[title]:not([aria-label])").forEach((b) => b.setAttribute("aria-label", b.title));
   try { S.drawerOpen = localStorage.getItem("drawerOpen") !== "0"; } catch {}
   const st = await api.get_state();
   S.settings = st.settings; S.user = st.user; S.ollama = st.ollama;

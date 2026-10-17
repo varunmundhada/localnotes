@@ -14,6 +14,18 @@ All notable changes to this project are documented here. The format follows
   “Classic” in Settings → App → Style.
 
 - Regression test suite (`tests/`), run by CI on every push.
+- One glass material system (thin / regular / thick) applied everywhere — dialogs, the command palette,
+  menus, toasts, form fields, selects, switches, chips and keys are now frosted glass too, instead of
+  near-solid white.
+- Settings redesigned: a section rail (Meetings, Transcription, Speakers, AI & templates, Shortcuts,
+  Appearance, Privacy) and instant save — every change applies immediately, with a “Saved” confirmation,
+  so nothing is lost by closing the dialog. A shortcut reference lists all in-app keys.
+- Deleting a meeting is instant with a 6-second Undo, instead of “click again to confirm”.
+- Each meeting in the sidebar has a “…” menu (Open, Rename, Copy notes, Delete), also on right-click.
+- Keyboard and screen-reader support: sidebar items and cards are focusable and open with Enter, menus
+  support arrow keys, a consistent focus ring, and labels on icon-only buttons.
+- Smaller touches: times read “2:07 am”, the people chip shows it's a menu, transcript lines show an
+  edit hint on hover, and menus flip upward near the bottom of the window.
 
 ### Fixed
 - After the accuracy pass, transcript lines could merge several people's speech into one ~30 s line, losing

@@ -713,6 +713,56 @@ body.recording .toasts { bottom: 92px; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(10px) scale(.98); } }
 @keyframes toastOut { to { opacity: 0; transform: translateY(6px) scale(.98); } }
 
+/* ============================================================
+   Settings: section rail + instant save
+   ============================================================ */
+dialog#settings { width: min(880px, 94vw); height: min(700px, 90vh); max-height: 90vh; }
+.set-head { gap: 8px; }
+.set-saved {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 650; color: var(--accent);
+  opacity: 0; transform: translateY(3px); transition: opacity .2s, transform .2s var(--ease);
+}
+.set-saved.show { opacity: 1; transform: none; }
+.set-saved svg { width: 14px; height: 14px; stroke-width: 2.6; }
+.set-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 200px 1fr; border-top: 1px solid var(--line); }
+.set-nav { display: flex; flex-direction: column; gap: 2px; padding: 12px 10px; border-right: 1px solid var(--line); overflow-y: auto; }
+.set-nav button {
+  display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; border: none; border-radius: 9px;
+  background: none; color: var(--text-2); font-weight: 600; font-size: 13.5px; text-align: left; transition: background .15s, color .15s;
+}
+.set-nav button:hover { background: var(--sunken); color: var(--text); }
+.set-nav button.active { background: var(--accent-soft); color: var(--accent); }
+.set-layout .set-body { position: relative; padding: 0 28px 28px; overflow-y: auto; }   /* sections' offsetTop is measured from here */
+.set-layout .set-section { padding: 22px 0 6px; border-top: none; }
+.set-layout .set-section + .set-section { border-top: 1px solid var(--line); }
+.set-layout .set-section h3 { font: 650 17px var(--font-display); text-transform: none; letter-spacing: -.005em; color: var(--text); margin: 0 0 4px; }
+.kbd-table {
+  display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 10px 16px; align-items: center; margin: 12px 0 4px;
+  padding: 14px 16px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); font-size: 13px; color: var(--text-2);
+}
+.kbd-table kbd { justify-self: start; }
+.set-legal { font-size: 12.5px; color: var(--muted); margin: 14px 0 0; }
+.set-legal span { display: block; margin-top: 4px; }
+.enc-badge svg { width: 13px; height: 13px; stroke-width: 2.2; }
+@media (max-width: 760px) { .set-layout { grid-template-columns: 1fr; } .set-nav { display: none; } }
+
+/* sidebar item actions */
+.m-item { padding-right: 38px; }
+.m-item .m-more {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; opacity: 0; transition: opacity .15s;
+}
+.m-item:hover .m-more, .m-item:focus-within .m-more, .m-item.active .m-more, .m-item .m-more:focus-visible { opacity: 1; }
+
+/* one consistent keyboard-focus ring */
+:where(button, [role="button"], [tabindex="0"], a, summary):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent); outline-offset: 2px;
+}
+.menu button:focus-visible { outline: none; background: var(--sunken); }
+
+/* transcript lines hint that they're editable */
+.transcript.editable .bubble p:hover::after { content: "  ✎"; color: var(--muted); font-size: 12px; }
+.chip .chev { width: 12px; height: 12px; margin-left: -2px; opacity: .7; }
+
 @media (max-width: 1100px) {
   .drawer { width: 340px; }
   .doc { padding: 36px 32px 160px; }
