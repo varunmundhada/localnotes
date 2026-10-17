@@ -82,7 +82,7 @@ def _key_pragma(key: bytes) -> str:
     return f"PRAGMA key = \"x'{key.hex()}'\""
 
 
-def _is_plain(path: Path) -> bool:
+def is_plain(path: Path) -> bool:
     try:
         with open(path, "rb") as f:
             return f.read(16) == PLAIN_HEADER
@@ -120,7 +120,7 @@ def encrypt_existing(path: Path, key: bytes):
 class DB:
     def __init__(self, path: Path, key: bytes | None = None):
         path.parent.mkdir(parents=True, exist_ok=True)
-        if key and _is_plain(path):
+        if key and is_plain(path):
             encrypt_existing(path, key)
         self.encrypted = bool(key)
         self._conn = sqlite3.connect(str(path), check_same_thread=False)

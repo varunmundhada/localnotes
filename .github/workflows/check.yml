@@ -24,9 +24,5 @@ jobs:
         run: python -m compileall -q .
       - name: Check UI scripts
         run: node --check ui/app.js
-      - name: Import app modules and run database/encryption checks
-        shell: pwsh
-        run: |
-          $env:LOCALNOTES_DATA = "$env:RUNNER_TEMP\ln"
-          python -c "import app, audio, db, detector, hotkeys, securestore, speakers, summarize, templates, transcribe, tray; print('imports ok')"
-          python -c "import os, tempfile, pathlib; from db import DB; d = DB(pathlib.Path(tempfile.mkdtemp()) / 't.db', os.urandom(32)); m = d.create_meeting('budget review'); d.reindex(m); assert d.search('budg'); print('encrypted db + search ok')"
+      - name: Regression tests
+        run: python -m unittest discover -s tests -v

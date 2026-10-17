@@ -21,7 +21,7 @@ import speakers
 import summarize
 import templates
 from audio import Recorder
-from db import DB
+from db import DB, is_plain
 from detector import MeetingDetector
 from hotkeys import Hotkeys
 from transcribe import Transcriber, _read_wav, refine
@@ -68,6 +68,30 @@ LIVE_ID_THRESHOLD = 0.68            # stricter than post-call matching: a live c
 MIN_CLUSTER_S = 3.0                 # voice clusters shorter than this are folded into the channel's main voice
 
 
+class DataLockedError(Exception):
+    """The encrypted database can't be opened with this Windows account's key."""
+
+
+def open_database() -> DB:
+    db_path, key_path = DATA_DIR / "localnotes.db", DATA_DIR / "storage.key"
+    locked_help = (f"Your notes are untouched in:\n{DATA_DIR}\n\n"
+                   "If you have a backup of storage.key from this Windows account, put it back in that folder. "
+                   "To start fresh instead, move localnotes.db somewhere else and open LocalNotes again.")
+    # Never mint a new key while an encrypted database exists: it could never open that data,
+    # and it would sit where a restored backup of the real key has to go.
+    if not key_path.exists() and db_path.exists() and not is_plain(db_path):
+        raise DataLockedError("LocalNotes can't find its encryption key (storage.key).\n\n" + locked_help)
+    try:
+        key = securestore.load_or_create_key(key_path)
+    except OSError as e:
+        raise DataLockedError(f"LocalNotes can't unlock its encryption key ({e}). This usually means the data "
+                              "folder was copied from another Windows account or PC.\n\n" + locked_help) from e
+    try:
+        return DB(db_path, key)
+    except Exception as e:
+        raise DataLockedError(f"LocalNotes can't open its notes database ({e}).\n\n" + locked_help) from e
+
+
 def load_settings() -> dict:
     try:
         return {**DEFAULT_SETTINGS, **json.loads(SETTINGS_PATH.read_text())}
@@ -101,7 +125,7 @@ class Api:
 
     def __init__(self):
         self._settings = load_settings()
-        self._db = DB(DATA_DIR / "localnotes.db", securestore.load_or_create_key(DATA_DIR / "storage.key"))
+        self._db = open_database()
         self._db.sync_builtin_templates(templates.BUILTIN)
         self._hotkeys = Hotkeys()
         self._paused_at: float | None = None
@@ -183,7 +207,11 @@ class Api:
 
     def save_settings(self, new: dict):
         before = dict(self._settings)
-        self._settings.update({k: v for k, v in new.items() if k in DEFAULT_SETTINGS})
+        new = {k: v for k, v in new.items() if k in DEFAULT_SETTINGS}
+        if new.get("hotkey_record", before["hotkey_record"]) == new.get("hotkey_pause", before["hotkey_pause"]):
+            new.pop("hotkey_record", None)   # one shortcut can't do both; keep the previous assignment
+            new.pop("hotkey_pause", None)
+        self._settings.update(new)
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         SETTINGS_PATH.write_text(json.dumps(self._settings, indent=2))
         self._detector.enabled = self._settings["detect_meetings"]
@@ -247,7 +275,7 @@ class Api:
         return True
 
     def delete_meeting(self, mid: int):
-        if mid == self._meeting_id:
+        if mid == self._meeting_id or mid in self._pipeline:   # still recording or being processed
             return False
         self._db.delete_meeting(mid)
         shutil.rmtree(AUDIO_DIR / str(mid), ignore_errors=True)
@@ -345,6 +373,9 @@ class Api:
         self._recorder, self._rec_started = None, None
         self._paused_at, self._paused_total = None, 0.0
         rec.stop()                     # flushes the last chunks into the transcriber queue
+        # Release "the current meeting" now, not when processing finishes: a new recording may
+        # start while this one is still being processed, and must not be cleared by it.
+        self._meeting_id = self._meeting_app = None
         self._emit("recording", recording=False, meeting_id=mid)
         if self._tray:
             self._tray.refresh()
@@ -408,7 +439,6 @@ class Api:
     def _finish(self, mid):
         self._stage(mid, "transcribing")
         self._transcriber.wait_idle()
-        self._meeting_id = self._meeting_app = None
         self._db.end_meeting(mid)
         self._db.reindex(mid)
         # Who spoke first (so notes use names), then quick notes from the live transcript,
@@ -563,7 +593,7 @@ class Api:
     # --- high-accuracy transcript pass ----------------------------------
     def refine_meeting(self, mid: int):
         """Re-run the accurate pass on a meeting whose audio was kept."""
-        if not self._tracks_for(mid) or mid == self._meeting_id:
+        if not self._tracks_for(mid) or mid == self._meeting_id or mid in self._pipeline:
             return False
         threading.Thread(target=self._refine_worker, args=(mid,), daemon=True).start()
         return True
@@ -576,7 +606,8 @@ class Api:
             self._emit("refine_start", meeting_id=mid)
             try:
                 segs = refine(model, self._tracks_for(mid), self._settings["vocabulary"],
-                              on_progress=lambda s: self._emit("refine_progress", meeting_id=mid, text=s))
+                              on_progress=lambda s: self._emit("refine_progress", meeting_id=mid, text=s),
+                              turns=self._db.speaker_turns(mid))
                 if segs:
                     self._db.replace_segments(mid, segs)
                     self._apply_speaker_labels(mid)   # keep names on the new, more accurate lines
@@ -890,7 +921,11 @@ def main():
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
     except Exception:
         pass
-    api = Api()
+    try:
+        api = Api()
+    except DataLockedError as e:
+        _user32.MessageBoxW(None, str(e), "LocalNotes", 0x10)   # MB_ICONERROR
+        return
     dark = api._settings["theme"] == "dark" or (api._settings["theme"] == "system" and system_prefers_dark())
     main_win = webview.create_window(
         "LocalNotes", url=str(UI_DIR / "index.html"), js_api=api,

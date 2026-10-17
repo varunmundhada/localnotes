@@ -36,7 +36,8 @@ Quit the running app first (tray icon → Quit). The database migrates itself on
 - **Never test against the user's real data.** Set `LOCALNOTES_DATA` to a temp folder before launching or importing
   `app`; real meetings live in `%APPDATA%\LocalNotes`.
 - Checks before committing: `.venv\Scripts\python.exe -m compileall -q .`, `node --check ui\app.js`,
-  `.venv\Scripts\python.exe selfcheck.py`.
+  `.venv\Scripts\python.exe -m unittest discover -s tests -v`, `.venv\Scripts\python.exe selfcheck.py`.
+  Add a regression test in `tests/` for every bug fix (it should fail without the fix).
 - Do not drive the UI with simulated keystrokes (SendKeys): focus can move to another window and type there.
   Use mouse clicks for visual checks, or call `Api` methods directly from Python.
 - Long-running Python work runs on threads and reports to the UI via `self._emit(kind, ...)`, handled in

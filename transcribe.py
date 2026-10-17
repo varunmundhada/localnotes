@@ -148,12 +148,43 @@ def _read_wav(path) -> np.ndarray:
     return pcm.astype(np.float32) / 32768.0
 
 
-def refine(model_name: str, tracks: dict, vocabulary: str = "", on_progress=None) -> list[dict]:
+MAX_CLIP_S = 28.0        # Whisper's window is 30 s
+MERGE_GAP_S = 0.8        # consecutive turns of the same voice closer than this become one clip
+
+
+def turn_clips(turns: list[dict], channel: str, n_samples: int) -> list[dict] | None:
+    """Speaker turns of one channel -> clip_timestamps (in samples) for the batched pipeline.
+
+    Without clips the pipeline packs up to 30 s of speech into each segment, so one
+    line can hold several people and speaker labels get lost. Clipping at turn
+    boundaries keeps every line to a single voice.
+    """
+    spans = sorted((t["t_start"], t["t_end"], t["cluster"]) for t in turns if t["channel"] == channel)
+    merged: list[list] = []
+    for a, b, c in spans:
+        if merged and merged[-1][2] == c and a - merged[-1][1] < MERGE_GAP_S and b - merged[-1][0] <= MAX_CLIP_S:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b, c])
+    clips = []
+    for a, b, _ in merged:
+        while b - a > 0.3:
+            end = min(b, a + MAX_CLIP_S)
+            s, e = int(a * 16000), min(int(end * 16000), n_samples)
+            if e > s:
+                clips.append({"start": s, "end": e})
+            a = end
+    return clips or None
+
+
+def refine(model_name: str, tracks: dict, vocabulary: str = "", on_progress=None,
+           turns: list[dict] | None = None) -> list[dict]:
     """Re-transcribe full per-speaker recordings with a stronger model.
 
-    tracks maps speaker -> WAV path. Returns segments sorted by time:
-    [{speaker, t_start, t_end, text}]. 'Them' is processed first so echo of it
-    can be removed from 'Me'.
+    tracks maps speaker -> WAV path; turns (optional) are the diarized voice turns,
+    used as clip boundaries so each line belongs to one voice. Returns segments
+    sorted by time: [{speaker, channel, t_start, t_end, text}]. 'Them' is processed
+    first so echo of it can be removed from 'Me'.
     """
     on_progress = on_progress or (lambda s: None)
     on_progress(f"Loading high-accuracy model '{model_name}' (first use downloads it)…")
@@ -172,6 +203,7 @@ def refine(model_name: str, tracks: dict, vocabulary: str = "", on_progress=None
             batch_size=REFINE_BATCH,
             beam_size=5,
             initial_prompt=build_prompt(vocabulary),
+            clip_timestamps=turn_clips(turns, speaker, len(audio)) if turns else None,
         )
         for s in segments:
             on_progress(f"Improving transcript ({speaker}): {int(100 * s.end / total)}%")

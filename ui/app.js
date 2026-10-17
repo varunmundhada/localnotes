@@ -148,7 +148,7 @@ function renderMarkdown(md, opts = {}) {
     close();
     let text = line.trim();
     if (opts.notes && !sawLead && (leadNext || out.length === 0)) {
-      text = text.replace(/^\*{0,2}(one-line )?summary\*{0,2}\s*:\s*\*{0,2}/i, "");
+      text = text.replace(/^\*{0,2}(one-line )?summary\*{0,2}\s*:\s*\*{0,2}\s*/i, "");
       out.push(`<p class="lead">${inline(text)}</p>`); sawLead = true; leadNext = false; continue;
     }
     out.push(`<p>${inline(text)}</p>`);
@@ -881,6 +881,7 @@ async function copyNotes() {
 async function deleteMeeting() {
   const id = S.meeting?.id; if (!id) return;
   if (await api.delete_meeting(id)) { toast("Meeting deleted"); showHome(); loadList(); }
+  else toast("This meeting is still being recorded or processed — try again in a moment", { kind: "error" });
 }
 
 // ---------------------------------------------------------------- recording + dock
@@ -1157,6 +1158,9 @@ $("settings").addEventListener("cancel", revertLook);
 $("settings-save").addEventListener("click", async () => {
   const next = { theme: pendingTheme, ui_style: pendingStyle };
   $("settings").querySelectorAll("[name]").forEach((el) => { next[el.name] = el.type === "checkbox" ? el.checked : el.value.trim(); });
+  if (next.hotkey_record && next.hotkey_record === next.hotkey_pause) {
+    return toast("Start/stop and pause need different shortcuts", { kind: "error" });
+  }
   S.settings = await api.save_settings(next);
   applyTheme(S.settings.theme);
   applyStyle(S.settings.ui_style);

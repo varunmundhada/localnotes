@@ -13,7 +13,17 @@ All notable changes to this project are documented here. The format follows
   that follows the cursor; dark-glass recording bar, menus and dialogs. The previous look stays available as
   “Classic” in Settings → App → Style.
 
+- Regression test suite (`tests/`), run by CI on every push.
+
 ### Fixed
+- After the accuracy pass, transcript lines could merge several people's speech into one ~30 s line, losing
+  speaker names. The pass now transcribes each speaker turn separately, so every line belongs to one voice.
+- Starting a new recording while the previous call was still being processed could silently drop the new
+  recording's audio. Meetings also can't be deleted while they're being processed any more.
+- A lost or unreadable encryption key made LocalNotes crash on start — and quietly created a new key that
+  could never open the existing notes. It now explains what happened and leaves everything untouched.
+- The same shortcut could be assigned to both start/stop and pause; one of them would silently stop working.
+- A stray space before the summary line when the AI writes `**Summary:** …`.
 - Speakers in the same meeting always get different colours.
 - Segmented-control highlights now line up after fonts load.
 

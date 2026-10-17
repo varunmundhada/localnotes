@@ -15,12 +15,15 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1 -NoShortcuts
    $env:LOCALNOTES_DEBUG = "1"     # WebView developer tools
    .venv\Scripts\python.exe app.py
    ```
-3. Before committing, run the checks (CI runs the same ones):
+3. Before committing, run the checks (CI runs the first three):
    ```powershell
    .venv\Scripts\python.exe -m compileall -q .
    node --check ui\app.js
+   .venv\Scripts\python.exe -m unittest discover -s tests -v
    .venv\Scripts\python.exe selfcheck.py
    ```
+   The tests need no audio devices, models or Ollama, and use a throwaway data folder.
+   When you fix a bug, add a test that fails without the fix.
 4. Add a line under **Unreleased** in [CHANGELOG.md](CHANGELOG.md).
 5. Open a pull request.
 
