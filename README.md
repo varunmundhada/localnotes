@@ -30,13 +30,14 @@ structured meeting notes — entirely on your own Windows machine. No accounts, 
 - **Global hotkeys** — `Ctrl+Alt+N` starts or stops recording from any app, `Ctrl+Alt+P` pauses.
 - **Encrypted at rest** — notes, transcripts and voice profiles are stored in an AES-256 encrypted database whose key
   is protected by your Windows account.
-- Searchable history, action items across all meetings, light and dark themes, and a command palette (`Ctrl+K`).
+- A frosted-glass interface over a soft aurora (or a flat “Classic” style), light and dark themes, searchable
+  history, action items across all meetings, and a command palette (`Ctrl+K`).
 
-| Meeting notes | Dark mode |
+| Meeting notes with named speakers | Dark mode |
 |---|---|
-| ![Meeting notes with live transcript](docs/screenshots/meeting-light.png) | ![Dark mode with a project-review template](docs/screenshots/meeting-dark.png) |
-| **Speaker recognition** | **Follow-up email** |
-| ![Named speakers in the transcript](docs/screenshots/speakers.png) | ![Follow-up email draft](docs/screenshots/follow-up.png) |
+| ![Meeting notes with a transcript of named speakers](docs/screenshots/meeting-light.png) | ![Dark mode with a project-review template](docs/screenshots/meeting-dark.png) |
+| **Search everything** | **Follow-up email** |
+| ![Command palette search](docs/screenshots/search.png) | ![Follow-up email draft](docs/screenshots/follow-up.png) |
 
 ## Requirements
 

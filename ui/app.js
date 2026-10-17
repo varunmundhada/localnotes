@@ -158,6 +158,18 @@ function renderMarkdown(md, opts = {}) {
 }
 
 // ---------------------------------------------------------------- theme
+function applyStyle(style) {
+  document.documentElement.dataset.style = style === "classic" ? "classic" : "glass";
+}
+// Glass sheen follows the cursor across cards and buttons.
+document.addEventListener("pointermove", (e) => {
+  const el = e.target.closest?.(".recent, .stat, .hero, .task-list, .btn, .m-item, .task, .search-trigger");
+  if (!el) return;
+  const r = el.getBoundingClientRect();
+  el.style.setProperty("--mx", `${e.clientX - r.left}px`);
+  el.style.setProperty("--my", `${e.clientY - r.top}px`);
+}, { passive: true });
+
 function applyTheme(theme) {
   if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
   else delete document.documentElement.dataset.theme;
@@ -322,6 +334,8 @@ async function openMeeting(id, { view } = {}) {
   if (switching) { S.streaming = false; S.aiBuffer = ""; }
   if (!S.streaming) S.aiBuffer = m.ai_notes;
   if (m.pipeline) S.pipeline[id] = m.pipeline;
+  if (switching) speakerPalette = new Map((m.speakers || []).filter((s) => !["Me", "Them"].includes(s.name))
+    .map((s, i) => [s.name, SPEAKER_COLORS[i % SPEAKER_COLORS.length]]));
   $("view-home").hidden = true;
   $("view-meeting").hidden = false;
   $("nav-home").classList.remove("active");
@@ -363,6 +377,7 @@ function renderChips() {
 function setView(v) {
   S.view = v;
   setSeg($("view-seg"), "v", v);
+  requestAnimationFrame(() => setSeg($("view-seg"), "v", S.view));
   $("pane-mine").hidden = v !== "mine";
   $("pane-ai").hidden = v !== "ai";
   if (v === "mine") requestAnimationFrame(() => autosize($("editor")));
@@ -560,12 +575,13 @@ $("drawer-seg").addEventListener("click", (e) => { const b = e.target.closest("b
 
 let lastSeg = null;
 const SPEAKER_COLORS = ["#2d6ae3", "#c2410c", "#7c3aed", "#0f766e", "#be185d", "#a16207", "#4d7c0f", "#0369a1"];
+// Colours are handed out in order of appearance within the open meeting, so its speakers never share one.
+let speakerPalette = new Map();
 function speakerColor(name) {
   if (name === "Me") return "var(--accent)";
   if (name === "Them") return "var(--them)";
-  let h = 0;
-  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return SPEAKER_COLORS[h % SPEAKER_COLORS.length];
+  if (!speakerPalette.has(name)) speakerPalette.set(name, SPEAKER_COLORS[speakerPalette.size % SPEAKER_COLORS.length]);
+  return speakerPalette.get(name);
 }
 function renderTranscript() {
   const box = $("tab-transcript"), m = S.meeting;
@@ -1009,6 +1025,7 @@ $("btn-search").addEventListener("click", openPalette);
 
 // ---------------------------------------------------------------- settings
 let pendingTheme = "system";
+let pendingStyle = "glass";
 async function openSettings(focusId) {
   const st = await api.get_state();
   S.settings = st.settings; S.ollama = st.ollama;
@@ -1025,7 +1042,9 @@ async function openSettings(focusId) {
     if (el.type === "checkbox") el.checked = !!v; else el.value = v ?? "";
   });
   pendingTheme = S.settings.theme;
+  pendingStyle = S.settings.ui_style || "glass";
   dlg.querySelectorAll("#theme-pick button").forEach((b) => b.classList.toggle("active", b.dataset.theme === pendingTheme));
+  dlg.querySelectorAll("#style-pick button").forEach((b) => b.classList.toggle("active", b.dataset.ui === pendingStyle));
   $("ollama-models").innerHTML = (st.ollama.models || []).map((m) => `<option value="${esc(m)}">`).join("");
   renderVoices();
   $("ollama-line").textContent = !st.ollama.running ? "Ollama isn't running — start the Ollama app."
@@ -1126,13 +1145,21 @@ $("theme-pick").addEventListener("click", (e) => {
   $("theme-pick").querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b));
   applyTheme(pendingTheme);
 });
-$("settings").addEventListener("click", (e) => { if (e.target.closest("[data-close]")) { applyTheme(S.settings.theme); $("settings").close(); } });
-$("settings").addEventListener("cancel", () => applyTheme(S.settings.theme));
+$("style-pick").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  pendingStyle = b.dataset.ui;
+  $("style-pick").querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b));
+  applyStyle(pendingStyle);
+});
+const revertLook = () => { applyTheme(S.settings.theme); applyStyle(S.settings.ui_style); };
+$("settings").addEventListener("click", (e) => { if (e.target.closest("[data-close]")) { revertLook(); $("settings").close(); } });
+$("settings").addEventListener("cancel", revertLook);
 $("settings-save").addEventListener("click", async () => {
-  const next = { theme: pendingTheme };
+  const next = { theme: pendingTheme, ui_style: pendingStyle };
   $("settings").querySelectorAll("[name]").forEach((el) => { next[el.name] = el.type === "checkbox" ? el.checked : el.value.trim(); });
   S.settings = await api.save_settings(next);
   applyTheme(S.settings.theme);
+  applyStyle(S.settings.ui_style);
   $("settings").close();
   toast("Settings saved");
   renderDetectStatus();
@@ -1158,9 +1185,11 @@ document.addEventListener("keydown", (e) => {
 $("doc-scroll").addEventListener("scroll", () => {
   $("toolbar").classList.toggle("stuck", $("toolbar").getBoundingClientRect().top <= $("doc-scroll").getBoundingClientRect().top + 1);
 });
-window.addEventListener("resize", () => {
+const remeasure = () => {
   if (S.meeting) { setSeg($("view-seg"), "v", S.view); setSeg($("drawer-seg"), "t", S.drawerTab); autosize($("editor")); autosize($("title")); }
-});
+};
+window.addEventListener("resize", remeasure);
+document.fonts?.ready.then(remeasure);   // segmented-control highlights are measured in px; redo once fonts settle
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => applyTheme(S.settings.theme));
 
 // ---------------------------------------------------------------- events from Python
@@ -1341,6 +1370,7 @@ window.addEventListener("pywebviewready", async () => {
   if (st.hotkeys_failed?.length) window.onEvent({ type: "hotkey_failed", combos: st.hotkeys_failed });
   S.detected = st.detected;
   applyTheme(S.settings.theme);
+  applyStyle(S.settings.ui_style);
   renderDetectStatus(); renderDock();
   await loadList();
   if (S.recordingId) openMeeting(S.recordingId, { view: "mine" });

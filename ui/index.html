@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <title>LocalNotes</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="glass.css">
+<script>document.documentElement.dataset.style = "glass";</script>
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -202,6 +204,8 @@
       <h3>App</h3>
       <div class="row"><div class="row-text"><b>Appearance</b></div>
         <div id="theme-pick" class="theme-pick"><button data-theme="system">System</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div></div>
+      <div class="row"><div class="row-text"><b>Style</b><span>Glass: frosted panels over a soft aurora. Classic: flat and solid.</span></div>
+        <div id="style-pick" class="theme-pick"><button data-ui="glass">Glass</button><button data-ui="classic">Classic</button></div></div>
       <div class="row"><div class="row-text"><b>Keep running in the tray</b><span>Closing the window keeps meeting detection on.</span></div><label class="switch"><input type="checkbox" name="close_to_tray"></label></div>
       <div class="row"><div class="row-text"><b>Launch at sign-in</b><span>Start quietly in the tray when Windows starts.</span></div><label class="switch"><input type="checkbox" name="launch_at_login"></label></div>
       <div class="row"><div class="row-text"><b>Start / stop recording</b><span>Works from any app, even when LocalNotes is hidden.</span></div>

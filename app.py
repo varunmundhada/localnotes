@@ -56,6 +56,7 @@ DEFAULT_SETTINGS = {
     "close_to_tray": True,          # closing the window keeps LocalNotes running in the tray
     "launch_at_login": False,
     "theme": "system",              # system / light / dark
+    "ui_style": "glass",            # glass / classic
     "identify_speakers": True,      # split voices after the call and recognise saved voice profiles
     "your_name": os.environ.get("USERNAME", "").split(".")[0].title(),
     "default_template": "auto",     # "auto" = guess from the meeting title, else a template id

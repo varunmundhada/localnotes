@@ -113,6 +113,7 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1
 }
 .icon-btn:hover { background: var(--sunken); color: var(--text); }
 .icon-btn.active { background: var(--accent-soft); color: var(--accent); }
+.icon-btn:focus-visible, .btn:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 1px; }
 
 /* ============================================================
    Sidebar

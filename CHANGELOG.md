@@ -9,6 +9,13 @@ All notable changes to this project are documented here. The format follows
 - New app logo and icons: sidebar, window and taskbar, tray (turns red while recording), shortcuts and README.
   Generated from `logo.py`, so every size and format comes from the same shapes.
 - LocalNotes now has its own taskbar identity instead of grouping under Python.
+- Glass style (new default): floating frosted panels over a soft aurora, glossy controls, light edges and a sheen
+  that follows the cursor; dark-glass recording bar, menus and dialogs. The previous look stays available as
+  “Classic” in Settings → App → Style.
+
+### Fixed
+- Speakers in the same meeting always get different colours.
+- Segmented-control highlights now line up after fonts load.
 
 ### Planned
 - Read participant names directly from Zoom / Teams / Meet windows to name first-time speakers.
