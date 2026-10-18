@@ -1,4 +1,8 @@
-"""LocalNotes: a fully local meeting recorder, transcriber and note-taker."""
+"""LocalNotes: a meeting recorder, transcriber and note-taker.
+
+Audio is recorded and stored on this PC. Speech-to-text and notes run on Groq (cloud mode, the default) or
+entirely locally with faster-whisper and Ollama (local mode).
+"""
 import ctypes
 import json
 import os
@@ -16,16 +20,17 @@ os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 import webview
 
+import cloud
 import languages
 import securestore
 import speakers
 import summarize
 import templates
-from audio import Recorder
+from audio import CLOUD_CHUNK_S, Recorder
 from db import DB, is_plain
 from detector import MeetingDetector
 from hotkeys import Hotkeys
-from transcribe import Transcriber, _read_wav, refine
+from transcribe import Transcriber, _read_wav, cloud_fill, refine
 from tray import Tray
 
 __version__ = "0.1.0"
@@ -42,6 +47,8 @@ TASK_RE = re.compile(r"^(\s*[-*]\s+\[)( |x|X)(\]\s+)(.*)$")
 _user32 = ctypes.windll.user32
 
 DEFAULT_SETTINGS = {
+    "engine": "cloud",              # cloud: Groq does speech-to-text and notes / local: faster-whisper + Ollama
+    "cloud_model": "qwen/qwen3.8-27b",   # Groq chat model for notes, Ask and follow-ups (cloud.CHAT_MODELS)
     "whisper_model": "base.en",     # live pass: tiny.en / base.en / small.en (multilingual twin used for non-English)
     "refine_model": "large-v3-turbo",  # after-meeting pass; "off" to skip
     "meeting_language": "en",       # default for new meetings: auto / en / hi / hinglish (see languages.py)
@@ -70,6 +77,28 @@ DEFAULT_SETTINGS = {
 }
 LIVE_ID_THRESHOLD = 0.68            # stricter than post-call matching: a live chunk may mix voices
 MIN_CLUSTER_S = 3.0                 # voice clusters shorter than this are folded into the channel's main voice
+CATCHUP_EVERY_S = 30.0              # how often queued meetings retry the cloud; backs off to CATCHUP_MAX_S
+CATCHUP_MAX_S = 600.0
+CLOUD_WAIT_ERRORS = (cloud.Offline, cloud.RateLimited, cloud.AuthError)   # work stays queued; retried later
+NOTES_REQUESTED = 2                 # meetings.cloud_pending: notes were asked for while the cloud was unreachable
+
+
+def error_text(e: Exception) -> str:
+    """An AI request that failed now (Ask, follow-up), in words for the UI."""
+    if isinstance(e, cloud.RateLimited):
+        return "Groq's free-tier limit was reached — try again in a minute."
+    if isinstance(e, cloud.Offline):
+        return "No internet connection — try again when you're back online."
+    return str(e)
+
+
+def cloud_reason(e: Exception) -> str:
+    """Why cloud work is waiting, in words for the UI."""
+    if isinstance(e, cloud.AuthError):
+        return str(e)
+    if isinstance(e, cloud.RateLimited):
+        return "Groq's free-tier limit was reached — LocalNotes will finish this automatically shortly."
+    return "No internet connection — LocalNotes will finish this automatically when you're back online."
 
 
 class DataLockedError(Exception):
@@ -165,6 +194,21 @@ class Api:
         self._refine_lock = threading.Lock()
         self._detector = MeetingDetector(self._on_meeting_start, self._on_meeting_end)
         self._detector.enabled = self._settings["detect_meetings"]
+        # Cloud: the Groq key lives DPAPI-encrypted next to the database key. A plain-text groq-key.txt
+        # dropped into the data folder is imported once and deleted.
+        self._keys = cloud.KeyStore(DATA_DIR)
+        try:
+            self._keys.import_plaintext()
+        except OSError:
+            pass
+        self._groq = cloud.Groq(self._keys)
+        self._cloud_issue = ""                 # why the cloud is unusable right now ("" = fine)
+        self._cloud_lock = threading.Lock()    # one catch-up at a time
+        self._catchup_wake = threading.Event()
+        self._transcriber.on_gap = self._on_gap
+        self._transcriber.on_cloud = self._on_cloud
+        self._apply_engine()
+        threading.Thread(target=self._catchup_loop, daemon=True).start()
 
     # --- plumbing -------------------------------------------------------
     def _emit(self, kind: str, **data):
@@ -187,7 +231,7 @@ class Api:
             self._transcriber.submit(self._meeting_id, speaker, t0, audio)
 
     def _stage(self, mid: int, stage: str, **extra):
-        if stage == "done":
+        if stage in ("done", "waiting"):     # waiting = queued for the cloud; the meeting is usable meanwhile
             self._pipeline.pop(mid, None)
         else:
             self._pipeline[mid] = stage
@@ -204,7 +248,9 @@ class Api:
             "paused_total": self._paused_total,
             "encrypted": self._db.encrypted,
             "hotkeys_failed": self._hotkeys.failed,
-            "ollama": summarize.ollama_status(self._settings["ollama_model"]),
+            "ollama": ({"running": True, "model_ready": True} if self._cloud_mode()
+                       else summarize.ollama_status(self._settings["ollama_model"])),
+            "cloud": self.cloud_status(),
             "detected": self._detected,
             "user": os.environ.get("USERNAME", "").split(".")[0].title(),
             "version": __version__,
@@ -222,6 +268,10 @@ class Api:
     def save_settings(self, new: dict):
         before = dict(self._settings)
         new = {k: v for k, v in new.items() if k in DEFAULT_SETTINGS}
+        if new.get("cloud_model", before["cloud_model"]) not in cloud.CHAT_MODELS:
+            new.pop("cloud_model", None)
+        if new.get("engine", before["engine"]) not in ("cloud", "local"):
+            new.pop("engine", None)
         if new.get("hotkey_record", before["hotkey_record"]) == new.get("hotkey_pause", before["hotkey_pause"]):
             new.pop("hotkey_record", None)   # one shortcut can't do both; keep the previous assignment
             new.pop("hotkey_pause", None)
@@ -230,6 +280,8 @@ class Api:
         SETTINGS_PATH.write_text(json.dumps(self._settings, indent=2))
         self._detector.enabled = self._settings["detect_meetings"]
         self._transcriber.vocabulary = self._settings["vocabulary"]
+        if self._settings["engine"] != before.get("engine"):
+            self._apply_engine()
         if self._meeting_id is not None:   # live model/language follow the settings mid-call too
             self._configure_live(self._meeting_language(self._meeting_id))
         if self._settings["launch_at_login"] != before.get("launch_at_login"):
@@ -262,7 +314,12 @@ class Api:
         rows = self._db.list_meetings()
         for r in rows:
             r["live"] = r["id"] == self._meeting_id
+            r["queued"] = self._queued(r["id"], r.pop("cloud_pending"))
         return rows
+
+    def _queued(self, mid: int, pending) -> bool:
+        """Waiting for the cloud (not while it's still recording or being worked on)."""
+        return bool(pending) and mid != self._meeting_id and mid not in self._pipeline
 
     def search(self, q: str):
         return self._db.search(q)
@@ -275,6 +332,8 @@ class Api:
             m["speakers"] = [{k: s[k] for k in ("cluster", "name", "seconds", "source")}
                              for s in self._db.meeting_speakers(mid)]
             m["live"] = mid == self._meeting_id
+            m["queued"] = self._queued(mid, m.pop("cloud_pending", 0))
+            m["queued_reason"] = self._cloud_issue if m["queued"] else ""
         return m
 
     def _tracks_for(self, mid: int) -> dict:
@@ -360,10 +419,16 @@ class Api:
         mid = self._db.create_meeting(title, app, self._pick_template(title))
         self._db.update_meeting(mid, language=self._settings["meeting_language"])
         self._configure_live(self._settings["meeting_language"])
-        save_audio = (self._settings["refine_model"] != "off" or self._settings["keep_audio"]
+        cloud_mode = self._cloud_mode()
+        if cloud_mode:
+            # Marked until the cloud has finished it, so a crash or quit mid-way is picked up on the next start.
+            # The audio is always kept until then: stretches the cloud missed are filled in from it.
+            self._db.set_cloud_pending(mid, 1)
+        save_audio = (cloud_mode or self._settings["refine_model"] != "off" or self._settings["keep_audio"]
                       or (self._settings["identify_speakers"] and self._speakers is not None))
         rec = Recorder(self._on_chunk, self._settings["capture_system"], self._settings["capture_mic"],
-                       audio_dir=AUDIO_DIR / str(mid) if save_audio else None)
+                       audio_dir=AUDIO_DIR / str(mid) if save_audio else None,
+                       chunk_s=CLOUD_CHUNK_S if cloud_mode else None)
         self._meeting_id, self._meeting_app = mid, app
         try:
             rec.start()
@@ -390,6 +455,7 @@ class Api:
         rec.stop()                     # flushes the last chunks into the transcriber queue
         # Release "the current meeting" now, not when processing finishes: a new recording may
         # start while this one is still being processed, and must not be cleared by it.
+        self._pipeline[mid] = "transcribing"   # claimed before the catch-up worker could see it as queued
         self._meeting_id = self._meeting_app = None
         self._emit("recording", recording=False, meeting_id=mid)
         if self._tray:
@@ -461,6 +527,9 @@ class Api:
         if self._settings["identify_speakers"] and self._speakers and self._tracks_for(mid):
             self._stage(mid, "speakers")
             self._identify_meeting(mid)
+        if self._db.get_meeting(mid)["cloud_pending"]:   # recorded in cloud mode
+            self._cloud_complete(mid)
+            return
         m = self._db.get_meeting(mid)
         empty = not m["segments"] and not m["user_notes"].strip()
         if self._settings["auto_notes"] and not empty:
@@ -477,6 +546,148 @@ class Api:
         elif not self._settings["keep_audio"]:
             shutil.rmtree(AUDIO_DIR / str(mid), ignore_errors=True)
         self._stage(mid, "done")
+
+    # --- cloud (Groq) -----------------------------------------------------------
+    def _cloud_mode(self) -> bool:
+        return self._settings["engine"] == "cloud"
+
+    def _notes_model(self) -> str:
+        return self._settings["cloud_model"] if self._cloud_mode() else self._settings["ollama_model"]
+
+    def _apply_engine(self):
+        on = self._cloud_mode()
+        self._transcriber.cloud = self._groq if on else None
+        summarize.use_cloud(self._groq)       # cloud models route there; Ollama models never do
+        if on:
+            self._transcriber.unload()        # free the local Whisper model's memory
+            self._catchup_wake.set()
+
+    def _on_gap(self, mid, channel, t0, t1):
+        self._db.add_gap(mid, channel, t0, t1)
+
+    def _on_cloud(self, ok: bool, reason: str):
+        self._cloud_issue = "" if ok else reason
+        self._emit("cloud", ok=ok, reason=reason)
+        if ok:
+            self._catchup_wake.set()
+
+    def _fill_gaps(self, mid: int):
+        """Transcribe what the live pass couldn't send, from the saved audio. Raises CLOUD_WAIT_ERRORS if it can't."""
+        gaps = self._db.gaps(mid)
+        if not gaps:
+            return
+        tracks = self._tracks_for(mid)
+        if tracks:
+            self._stage(mid, "catchup")
+            plan = languages.cloud_plan(self._meeting_language(mid))
+            segs = cloud_fill(self._groq, tracks, gaps, plan["language"], self._settings["vocabulary"],
+                              on_progress=lambda s: self._emit("catchup_progress", meeting_id=mid, text=s),
+                              seed=plan["seed"])
+            for s in segs:
+                self._db.add_segment(mid, s["speaker"], s["t_start"], s["t_end"], s["text"], s["channel"])
+            self._apply_speaker_labels(mid)    # name the new lines like the rest
+            self._db.reindex(mid)
+        self._db.clear_gaps(mid)               # (without audio there is nothing left to fill)
+
+    def _cloud_complete(self, mid: int) -> bool:
+        """Finish a cloud-mode meeting: fill transcript gaps, then write the notes.
+
+        Offline / rate-limited / no key: the meeting stays queued (audio kept) and the catch-up worker
+        retries it. Returns True when the meeting is finished.
+        """
+        with self._cloud_lock:
+            if not self._db.get_meeting(mid):  # deleted while queued
+                return True
+            try:
+                self._fill_gaps(mid)
+                m = self._db.get_meeting(mid)
+                wanted = self._settings["auto_notes"] or m["cloud_pending"] == NOTES_REQUESTED
+                if (m["segments"] or m["user_notes"].strip()) and wanted:
+                    self._stage(mid, "notes")
+                    self._busy_notes.add(mid)
+                    try:
+                        self._write_notes(mid)
+                    finally:
+                        self._busy_notes.discard(mid)
+            except CLOUD_WAIT_ERRORS as e:
+                self._db.set_cloud_pending(mid, max(1, self._db.get_meeting(mid)["cloud_pending"]))
+                self._cloud_issue = cloud_reason(e)
+                self._emit("notes_queued", meeting_id=mid, reason=self._cloud_issue)
+                self._stage(mid, "waiting", reason=self._cloud_issue)
+                return False
+            except Exception as e:             # a real error: report it, don't retry forever
+                self._emit("notes_error", meeting_id=mid, error=str(e))
+            self._cloud_done(mid)
+            self._stage(mid, "done")
+            return True
+
+    def _cloud_done(self, mid: int):
+        self._db.set_cloud_pending(mid, 0)
+        if not self._settings["keep_audio"] and not self._db.gaps(mid):
+            shutil.rmtree(AUDIO_DIR / str(mid), ignore_errors=True)
+
+    def _catchup_loop(self):
+        """Finish meetings queued for the cloud once it's reachable: on start, every so often, and on reconnect."""
+        delay = 5.0
+        while not self._quitting:
+            self._catchup_wake.wait(delay)
+            self._catchup_wake.clear()
+            delay = self._catchup_once(delay)
+
+    def _catchup_once(self, delay: float) -> float:
+        """One pass over the queue. Returns how long to wait before the next one (backs off while offline)."""
+        queued = [mid for mid in self._db.cloud_pending_meetings()
+                  if mid != self._meeting_id and mid not in self._pipeline]
+        if not queued or not self._cloud_mode() or not self._keys.get():   # on-device mode never calls out
+            return CATCHUP_EVERY_S
+        try:
+            self._groq.ping()
+        except cloud.CloudError as e:
+            self._cloud_issue = cloud_reason(e) if isinstance(e, CLOUD_WAIT_ERRORS) else str(e)
+            return min(delay * 2, CATCHUP_MAX_S)
+        self._cloud_issue = ""
+        self._transcriber.cloud_reachable()
+        for mid in queued:
+            if self._quitting or not self._cloud_complete(mid):
+                break
+        return CATCHUP_EVERY_S
+
+    def cloud_status(self):
+        return {"has_key": bool(self._keys.get()), "hint": self._keys.hint(), "issue": self._cloud_issue,
+                "models": cloud.CHAT_MODELS,
+                "queued": sum(self._queued(mid, 1) for mid in self._db.cloud_pending_meetings())}
+
+    def set_cloud_key(self, key: str):
+        """Save a Groq API key (encrypted) and check it. The key itself is never sent back to the UI."""
+        key = (key or "").strip()
+        if not key.startswith("gsk_") or len(key) < 20 or any(c.isspace() for c in key):
+            return {"ok": False, "saved": False, "error": "That doesn't look like a Groq API key — it starts with gsk_."}
+        old = self._keys.get()
+        self._keys.set(key)
+        result = self.test_cloud()
+        saved = result["ok"] or not result.get("bad_key")   # offline: keep it, it's checked again later
+        if not saved:
+            if old:
+                self._keys.set(old)
+            else:
+                self._keys.clear()
+        return {**result, "saved": saved, **self.cloud_status()}
+
+    def remove_cloud_key(self):
+        self._keys.clear()
+        return self.cloud_status()
+
+    def test_cloud(self):
+        try:
+            info = self._groq.ping()
+        except cloud.AuthError as e:
+            return {"ok": False, "error": str(e), "bad_key": True}
+        except cloud.CloudError as e:
+            return {"ok": False, "error": cloud_reason(e) if isinstance(e, cloud.Offline) else str(e)}
+        self._cloud_issue = ""
+        self._transcriber.cloud_reachable()
+        self._catchup_wake.set()
+        return {"ok": True, "transcribe": info["transcribe"], "chat_models": info["chat_models"]}
 
     # --- speakers & voice profiles ----------------------------------------
     def _profiles(self, include_self: bool = False) -> dict:
@@ -623,6 +834,11 @@ class Api:
                                      refine_model or self._settings["refine_model"])
 
     def _configure_live(self, language: str):
+        if self._cloud_mode():
+            plan = languages.cloud_plan(language)
+            self._transcriber.language, self._transcriber.seed = plan["language"], plan["seed"]
+            return
+        self._transcriber.seed = ""
         plan = self._plan(language)
         if plan["live"] != self._transcriber.model_name:
             self._transcriber.model_name = plan["live"]
@@ -642,6 +858,8 @@ class Api:
         return languages.notes_instruction(self._settings["notes_language"], self._meeting_language(mid))
 
     def _refine_worker(self, mid: int):
+        if self._cloud_mode():
+            return self._cloud_refine(mid)
         # "Improve transcript" can be asked for even when the automatic pass is off
         plan = self._plan(self._meeting_language(mid),
                           "large-v3-turbo" if self._settings["refine_model"] == "off" else None)
@@ -661,8 +879,36 @@ class Api:
                 self._emit("refine_error", meeting_id=mid, error=str(e))
                 return False
 
+    def _cloud_refine(self, mid: int) -> bool:
+        """"Improve transcript" in cloud mode: transcribe the whole kept recording again in one go,
+        which gives Whisper full context instead of short live chunks."""
+        tracks = self._tracks_for(mid)
+        with self._refine_lock:
+            self._emit("refine_start", meeting_id=mid)
+            try:
+                whole = [{"channel": ch, "t_start": 0.0, "t_end": len(_read_wav(p)) / 16000} for ch, p in tracks.items()]
+                plan = languages.cloud_plan(self._meeting_language(mid))
+                segs = cloud_fill(self._groq, tracks, whole, plan["language"], self._settings["vocabulary"],
+                                  on_progress=lambda s: self._emit("refine_progress", meeting_id=mid, text=s),
+                                  seed=plan["seed"], piece_s=cloud.MAX_UPLOAD_S)
+                if segs:
+                    segs.sort(key=lambda s: s["t_start"])
+                    self._db.replace_segments(mid, segs)
+                    self._db.clear_gaps(mid)
+                    self._apply_speaker_labels(mid)
+                self._emit("refine_done", meeting_id=mid, count=len(segs))
+                return bool(segs)
+            except Exception as e:
+                self._emit("refine_error", meeting_id=mid, error=error_text(e))
+                return False
+
     # --- AI notes & questions --------------------------------------------
     def _ollama_ready(self, mid: int, event: str) -> bool:
+        if self._cloud_mode():   # offline is fine here: the request is queued (notes) or reported (Ask)
+            if not self._keys.get():
+                self._emit(event, meeting_id=mid, error="Add your Groq API key in Settings → Cloud AI to use AI.")
+                return False
+            return True
         st = summarize.ollama_status(self._settings["ollama_model"])
         if not st["running"]:
             self._emit(event, meeting_id=mid, error="Ollama isn't running. Start the Ollama app and try again.")
@@ -682,23 +928,34 @@ class Api:
 
     def _notes_worker(self, mid):
         try:
-            m = self._db.get_meeting(mid)
-            self._emit("notes_start", meeting_id=mid)
-            tpl = self._db.template(m.get("template_id")) or self._db.template("general")
-            notes = summarize.generate_notes(
-                self._settings["ollama_model"], m["title"], m["user_notes"], self._db.transcript_text(mid),
-                me_name=self._settings["your_name"], structure=tpl["prompt"] if tpl else "",
-                language=self._notes_language(mid),
-                on_token=lambda t: self._emit("notes_token", meeting_id=mid, text=t),
-                on_progress=lambda s: self._emit("notes_progress", meeting_id=mid, text=s),
-            )
-            notes = summarize.clean_notes(notes)
-            self._db.update_meeting(mid, ai_notes=notes)
-            self._emit("notes_done", meeting_id=mid, notes=notes)
+            self._write_notes(mid)
+            if (self._db.get_meeting(mid)["cloud_pending"] and mid != self._meeting_id and mid not in self._pipeline
+                    and not self._db.gaps(mid)):
+                self._cloud_done(mid)    # a queued meeting finished by hand
+        except CLOUD_WAIT_ERRORS as e:
+            # Keep the request: the catch-up worker writes the notes once the cloud is reachable.
+            self._db.set_cloud_pending(mid, NOTES_REQUESTED)
+            self._cloud_issue = cloud_reason(e)
+            self._emit("notes_queued", meeting_id=mid, reason=self._cloud_issue)
         except Exception as e:
             self._emit("notes_error", meeting_id=mid, error=str(e))
         finally:
             self._busy_notes.discard(mid)
+
+    def _write_notes(self, mid):
+        m = self._db.get_meeting(mid)
+        self._emit("notes_start", meeting_id=mid)
+        tpl = self._db.template(m.get("template_id")) or self._db.template("general")
+        notes = summarize.generate_notes(
+            self._notes_model(), m["title"], m["user_notes"], self._db.transcript_text(mid),
+            me_name=self._settings["your_name"], structure=tpl["prompt"] if tpl else "",
+            language=self._notes_language(mid),
+            on_token=lambda t: self._emit("notes_token", meeting_id=mid, text=t),
+            on_progress=lambda s: self._emit("notes_progress", meeting_id=mid, text=s),
+        )
+        notes = summarize.clean_notes(notes)
+        self._db.update_meeting(mid, ai_notes=notes)
+        self._emit("notes_done", meeting_id=mid, notes=notes)
 
     # --- templates --------------------------------------------------------
     def list_templates(self):
@@ -737,14 +994,14 @@ class Api:
                 m = self._db.get_meeting(mid)
                 self._emit("followup_start", meeting_id=mid)
                 text = summarize.followup_email(
-                    self._settings["ollama_model"], m["title"], m["ai_notes"] or m["user_notes"],
+                    self._notes_model(), m["title"], m["ai_notes"] or m["user_notes"],
                     self._db.transcript_text(mid), self._settings["your_name"], tone,
                     language=self._notes_language(mid),
                     on_token=lambda t: self._emit("followup_token", meeting_id=mid, text=t))
                 self._db.update_meeting(mid, followup=text.strip())
                 self._emit("followup_done", meeting_id=mid, text=text.strip())
             except Exception as e:
-                self._emit("followup_error", meeting_id=mid, error=str(e))
+                self._emit("followup_error", meeting_id=mid, error=error_text(e))
             finally:
                 self._busy_followup.discard(mid)
 
@@ -796,13 +1053,13 @@ class Api:
                 m = self._db.get_meeting(mid)
                 self._emit("ask_start", meeting_id=mid)
                 answer = summarize.ask(
-                    self._settings["ollama_model"], m["title"], m["user_notes"], m["ai_notes"],
+                    self._notes_model(), m["title"], m["user_notes"], m["ai_notes"],
                     self._db.transcript_text(mid), history or [], question,
                     on_token=lambda t: self._emit("ask_token", meeting_id=mid, text=t),
                 )
                 self._emit("ask_done", meeting_id=mid, text=answer)
             except Exception as e:
-                self._emit("ask_error", meeting_id=mid, error=str(e))
+                self._emit("ask_error", meeting_id=mid, error=error_text(e))
 
         threading.Thread(target=work, daemon=True).start()
         return True

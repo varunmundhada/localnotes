@@ -17,6 +17,7 @@ import soxr
 TARGET_RATE = 16000
 MIN_CHUNK_S = 5.0       # don't cut before this much audio
 MAX_CHUNK_S = 20.0      # always cut at this length
+CLOUD_CHUNK_S = (10.0, 30.0)   # cloud: Groq bills at least 10 s per request, and longer chunks give Whisper context
 TAIL_S = 0.5            # trailing window checked for a pause
 PAUSE_RMS = 0.006       # below this the tail counts as a pause
 SPEECH_RMS = 0.012      # a chunk with no 30 ms window above this is dropped as silence
@@ -40,9 +41,10 @@ def _has_speech(x: np.ndarray) -> bool:
 class _Segmenter:
     """Accumulates one source's audio and emits chunks at natural pauses."""
 
-    def __init__(self, speaker: str, on_chunk):
+    def __init__(self, speaker: str, on_chunk, chunk_s: tuple[float, float] = (MIN_CHUNK_S, MAX_CHUNK_S)):
         self.speaker = speaker
         self.on_chunk = on_chunk
+        self.min_s, self.max_s = chunk_s
         self.buf: list[np.ndarray] = []
         self.n = 0
         self.t0 = None
@@ -59,9 +61,9 @@ class _Segmenter:
             self.last_audio = time.monotonic()
             self.level = _rms(audio)
             dur = self.n / TARGET_RATE
-            if dur >= MAX_CHUNK_S:
+            if dur >= self.max_s:
                 self._flush()
-            elif dur >= MIN_CHUNK_S:
+            elif dur >= self.min_s:
                 tail = np.concatenate(self.buf)[-int(TAIL_S * TARGET_RATE):]
                 if _rms(tail) < PAUSE_RMS:
                     self._flush()
@@ -121,11 +123,13 @@ class Recorder:
     """Records both sources until stop(). on_chunk(speaker, t_start_s, audio16k).
 
     If audio_dir is given, each source is also saved as <audio_dir>/<speaker>.wav.
+    chunk_s is the (shortest, longest) chunk handed to on_chunk, in seconds.
     """
 
     def __init__(self, on_chunk, capture_system: bool = True, capture_mic: bool = True,
-                 audio_dir: Path | None = None):
+                 audio_dir: Path | None = None, chunk_s: tuple[float, float] | None = None):
         self.on_chunk = on_chunk
+        self.chunk_s = chunk_s or (MIN_CHUNK_S, MAX_CHUNK_S)
         self.capture_system = capture_system
         self.capture_mic = capture_mic
         self.audio_dir = audio_dir
@@ -169,7 +173,7 @@ class Recorder:
         self._ticker.start()
 
     def _open(self, speaker: str, dev: dict):
-        seg = _Segmenter(speaker, self.on_chunk)
+        seg = _Segmenter(speaker, self.on_chunk, self.chunk_s)
         self._segs[speaker] = seg
         track = None
         if self.audio_dir:

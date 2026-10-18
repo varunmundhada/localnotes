@@ -1,11 +1,57 @@
-"""Turn a transcript plus the user's rough notes into meeting notes via a local Ollama model."""
+"""Turn a transcript plus the user's rough notes into meeting notes, with Groq (cloud) or a local Ollama model.
+
+Models listed in cloud.CHAT_MODELS ("qwen/qwen3.8-27b", …) run on Groq; anything else is an Ollama model.
+"""
 import json
 import re
 
 import requests
 
+import cloud
+
 OLLAMA_URL = "http://127.0.0.1:11434"
 CHUNK_CHARS = 24000     # ~6k tokens; longer transcripts are condensed in parts first
+# Groq's free tier allows ~7K input / 8K total tokens a minute per model: keep each prompt well under.
+CLOUD_PROMPT_TOKENS = 4500
+CLOUD_RETRIES = 8       # rate-limit waits to sit through in one notes run (each up to two minutes)
+# Each model has its own per-minute allowance, so long transcripts are condensed by two models taking turns.
+CONDENSE_PARTNER = {"qwen/qwen3.8-27b": "openai/gpt-oss-120b"}
+CLOUD_LENGTH = "Keep the notes under 450 words."   # the answer must fit the model's output allowance
+
+_cloud: "cloud.Groq | None" = None
+
+
+def use_cloud(client: "cloud.Groq | None"):
+    global _cloud
+    _cloud = client
+
+
+def is_cloud(model: str) -> bool:
+    return model in cloud.CHAT_MODELS
+
+
+def estimate_tokens(text: str) -> int:
+    """Rough upper bound: ~3 chars/token for Latin script, ~2.2 for Devanagari (measured on Groq's models)."""
+    latin = sum(1 for c in text if ord(c) < 0x250)
+    return int(latin / 3 + (len(text) - latin) / 2.2) + 1
+
+
+def _budget(model: str, chars: int, tokens: int):
+    """How much transcript fits in one request: (limit, measure) — characters locally, tokens in the cloud."""
+    return (tokens, estimate_tokens) if is_cloud(model) else (chars, len)
+
+
+def _tail(text: str, limit: int, measure) -> str:
+    """The end of text that fits within limit (by measure), cut at a line break."""
+    if measure(text) <= limit:
+        return text
+    kept, n = [], 0
+    for ln in reversed(text.splitlines()):
+        n += measure(ln) + 1
+        if n > limit:
+            break
+        kept.append(ln)
+    return "…(earlier part omitted; see notes)…\n" + "\n".join(reversed(kept))
 
 SYSTEM = """You write concise, accurate meeting notes from a transcript.
 "Me" is the user who recorded the meeting. Other speakers are labelled by name when known,
@@ -111,7 +157,8 @@ def followup_email(model: str, title: str, notes: str, transcript: str, me_name:
                    tone: str = "friendly", on_token=None, language: str = "") -> str:
     prompt = FOLLOWUP.format(title=title, me_line=f"My name: {me_name}" if me_name else "",
                              tone=TONES.get(tone, TONES["friendly"]), notes=notes or "(no notes)",
-                             transcript=transcript[-12000:] or "(empty)", language=language)
+                             transcript=_tail(transcript, *_budget(model, 12000, 2500)) or "(empty)",
+                             language=language)
     return _clean_greeting(_stream(model, [{"role": "system", "content": FOLLOWUP_SYSTEM},
                                            {"role": "user", "content": prompt}], on_token))
 
@@ -127,8 +174,7 @@ ASK_CONTEXT_CHARS = 40000
 def ask(model: str, title: str, user_notes: str, ai_notes: str, transcript: str,
         history: list[dict], question: str, on_token=None) -> str:
     """Answer a question about a meeting. history: prior [{role, content}] turns."""
-    if len(transcript) > ASK_CONTEXT_CHARS:
-        transcript = "…(earlier part omitted; see notes)…\n" + transcript[-ASK_CONTEXT_CHARS:]
+    transcript = _tail(transcript, *_budget(model, ASK_CONTEXT_CHARS, 3000))
     context = (f"Meeting: {title}\n\n<my_notes>\n{user_notes or '(none)'}\n</my_notes>\n\n"
                f"<ai_notes>\n{ai_notes or '(none)'}\n</ai_notes>\n\n<transcript>\n{transcript or '(empty)'}\n</transcript>")
     messages = [{"role": "system", "content": ASK_SYSTEM}, {"role": "user", "content": context},
@@ -147,8 +193,9 @@ def ollama_status(model: str) -> dict:
     return {"running": True, "model_ready": ready, "models": sorted(names)}
 
 
-def _chat(model: str, prompt: str, on_token=None) -> str:
-    return _stream(model, [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}], on_token)
+def _chat(model: str, prompt: str, on_token=None, on_wait=None) -> str:
+    return _stream(model, [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}], on_token,
+                   on_wait)
 
 
 _thinking_models: dict[str, bool] = {}
@@ -201,7 +248,13 @@ class ThinkFilter:
         return out
 
 
-def _stream(model: str, messages: list[dict], on_token=None) -> str:
+def _stream(model: str, messages: list[dict], on_token=None, on_wait=None) -> str:
+    if is_cloud(model):
+        if _cloud is None:
+            raise cloud.AuthError("Cloud AI isn't set up — add a Groq API key in Settings → Cloud AI.")
+        # A rate-limit refusal comes before any text is streamed, so retrying never repeats output.
+        return cloud.with_retries(lambda: _cloud.chat(model, messages, on_token).strip(),
+                                  attempts=CLOUD_RETRIES, on_wait=on_wait)
     payload = {"model": model, "stream": True, "messages": messages,
                "options": {"num_ctx": 16384, "temperature": 0.2}}
     if _can_think(model):
@@ -248,12 +301,20 @@ def generate_notes(model: str, title: str, user_notes: str, transcript: str,
     if not transcript.strip() and not user_notes.strip():
         return "_Nothing was recorded or written for this meeting._"
     label = "Full transcript"
-    if len(transcript) > CHUNK_CHARS:
-        chunks = _split(transcript, CHUNK_CHARS)
+    limit, measure = _budget(model, CHUNK_CHARS, max(1500, CLOUD_PROMPT_TOKENS - estimate_tokens(user_notes)))
+
+    def wait(seconds):
+        on_progress(f"Waiting {seconds:.0f}s for the free-tier rate limit…")
+
+    for _ in range(3):        # condensed parts can themselves be too long for one request: condense again
+        if measure(transcript) <= limit:
+            break
+        chunks = _split(transcript, limit, measure)
         parts = []
+        models = [model, CONDENSE_PARTNER.get(model, model)] if is_cloud(model) else [model]
         for i, chunk in enumerate(chunks, 1):
             on_progress(f"Condensing transcript part {i}/{len(chunks)}…")
-            parts.append(_chat(model, CONDENSE.format(i=i, n=len(chunks), chunk=chunk)))
+            parts.append(_chat(models[i % len(models)], CONDENSE.format(i=i, n=len(chunks), chunk=chunk), on_wait=wait))
         transcript = "\n\n".join(parts)
         label = "Condensed transcript (bullet points per part, in order)"
     on_progress("Writing notes…")
@@ -261,20 +322,21 @@ def generate_notes(model: str, title: str, user_notes: str, transcript: str,
         model,
         FINAL.format(title=title, me_line=f'"Me" in the transcript is {me_name}.\n' if me_name else "",
                      notes=user_notes.strip() or "(none)", label=label,
-                     structure=structure.strip() or DEFAULT_STRUCTURE, language=language,
+                     structure=structure.strip() or DEFAULT_STRUCTURE,
+                     language=f"{language} {CLOUD_LENGTH}".strip() if is_cloud(model) else language,
                      transcript=transcript or "(no audio transcribed)"),
-        on_token=on_token,
+        on_token=on_token, on_wait=wait,
     )
 
 
-def _split(text: str, size: int) -> list[str]:
+def _split(text: str, size: int, measure=len) -> list[str]:
     lines, chunks, cur, n = text.splitlines(), [], [], 0
     for ln in lines:
-        if n + len(ln) > size and cur:
+        if n + measure(ln) > size and cur:
             chunks.append("\n".join(cur))
             cur, n = [], 0
         cur.append(ln)
-        n += len(ln) + 1
+        n += measure(ln) + 1
     if cur:
         chunks.append("\n".join(cur))
     return chunks

@@ -67,6 +67,20 @@ def speech_plan(language: str, live_model: str, refine_model: str) -> dict:
     return plan
 
 
+# Groq runs stock Whisper large-v3. On Hinglish it needs the Hindi language token (otherwise it guesses
+# English, Spanish or French) and does best primed with code-switched text; it writes Hindi words in Devanagari.
+HINGLISH_SEED = ("Haan, theek hai. Toh aaj ki meeting mein hum project ke baare mein baat karenge, "
+                 "aur phir next steps decide karenge.")
+
+
+def cloud_plan(language: str) -> dict:
+    """-> {language, seed}: the Whisper language code for Groq (None = auto-detect) and a prompt to start from."""
+    language = language if language in MEETING_LANGUAGES else "auto"
+    if language == "hinglish":
+        return {"language": "hi", "seed": HINGLISH_SEED}
+    return {"language": None if language == "auto" else language, "seed": ""}
+
+
 def notes_instruction(notes_language: str, meeting_language: str) -> str:
     target = meeting_language if notes_language == "same" else notes_language
     if target in _NOTES_INSTRUCTION:

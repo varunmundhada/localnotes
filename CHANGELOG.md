@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Cloud AI with Groq (new default).** Speech-to-text (Whisper large-v3) and notes, Ask and follow-up emails
+  (Qwen 3.8 27B, or GPT-OSS 120B / 20B) run on Groq's free tier, so the laptop no longer runs heavy models.
+  Recordings, notes and voice profiles still stay on the PC; speaker recognition still runs locally. Add your free
+  API key in **Settings → Cloud AI**; it is checked straight away and stored encrypted with your Windows account.
+  “This PC only” keeps the previous fully on-device engine (`setup.ps1 -Local` installs its models).
+- **Works without internet.** Recording carries on when the connection drops; the audio is kept, and the missed
+  transcript and the notes are finished automatically when you're back online — also after a restart. Queued
+  meetings are marked “Waiting to finish”, with a **Try now** button.
+- Hinglish in the cloud uses Whisper's Hindi mode primed with code-switched text, which matched the on-device
+  Hinglish model's accuracy in testing (Hindi words are written in Devanagari).
+- Long meetings are condensed in parts sized to Groq's free-tier limits, with automatic waits when a limit is hit.
 - **Hindi and Hinglish meetings.** A meeting language (Auto / English / Hindi / Hinglish) — a default in
   Settings and a language chip on every meeting, switchable mid-call. Hinglish uses Oriserve's
   Whisper-Hindi2Hinglish models (Swift live, Apex after the call), converted locally by
@@ -34,6 +45,9 @@ All notable changes to this project are documented here. The format follows
   support arrow keys, a consistent focus ring, and labels on icon-only buttons.
 - Smaller touches: times read “2:07 am”, the people chip shows it's a menu, transcript lines show an
   edit hint on hover, and menus flip upward near the bottom of the window.
+
+### Changed
+- `setup.ps1` no longer downloads ~5 GB of local models by default; pass `-Local` for the on-device engine.
 
 ### Fixed
 - The AI no longer invents action items when nobody committed to anything.

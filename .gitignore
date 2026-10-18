@@ -27,3 +27,5 @@ desktop.ini
 # Environment / secrets
 .env
 .env.*
+groq-key.txt
+*api-key*

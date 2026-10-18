@@ -59,6 +59,16 @@ CREATE TABLE IF NOT EXISTS voices (
     updated_at  REAL NOT NULL
 );
 
+-- Stretches of a recording the cloud couldn't transcribe live (offline, rate limit, no key):
+-- transcribed from the saved audio once the connection is back.
+CREATE TABLE IF NOT EXISTS pending_audio (
+    meeting_id  INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    channel     TEXT NOT NULL,
+    t_start     REAL NOT NULL,
+    t_end       REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pending_meeting ON pending_audio(meeting_id);
+
 -- Note templates: built-ins are refreshed from templates.py on start; users can add their own.
 CREATE TABLE IF NOT EXISTS templates (
     id          TEXT PRIMARY KEY,
@@ -137,6 +147,8 @@ class DB:
             self._conn.execute("ALTER TABLE meetings ADD COLUMN followup TEXT NOT NULL DEFAULT ''")
         if "language" not in mcols:   # NULL = the default from settings
             self._conn.execute("ALTER TABLE meetings ADD COLUMN language TEXT")
+        if "cloud_pending" not in mcols:   # 1 = cloud still has to finish the meeting, 2 = and notes were asked for
+            self._conn.execute("ALTER TABLE meetings ADD COLUMN cloud_pending INTEGER NOT NULL DEFAULT 0")
         cols = {r[1] for r in self._conn.execute("PRAGMA table_info(segments)")}
         if "channel" not in cols:   # older databases: speaker used to be the channel
             self._conn.execute("ALTER TABLE segments ADD COLUMN channel TEXT")
@@ -193,7 +205,7 @@ class DB:
 
     def list_meetings(self, limit: int = 200) -> list[dict]:
         rows = self._q(
-            "SELECT id, title, started_at, ended_at, app FROM meetings "
+            "SELECT id, title, started_at, ended_at, app, cloud_pending FROM meetings "
             "ORDER BY started_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
@@ -207,6 +219,26 @@ class DB:
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # --- cloud catch-up ------------------------------------------------------
+    def add_gap(self, mid: int, channel: str, t_start: float, t_end: float):
+        self._q("INSERT INTO pending_audio(meeting_id, channel, t_start, t_end) VALUES (?,?,?,?)",
+                (mid, channel, t_start, t_end))
+
+    def gaps(self, mid: int) -> list[dict]:
+        return [dict(r) for r in self._q(
+            "SELECT channel, t_start, t_end FROM pending_audio WHERE meeting_id=? ORDER BY channel, t_start",
+            (mid,)).fetchall()]
+
+    def clear_gaps(self, mid: int):
+        self._q("DELETE FROM pending_audio WHERE meeting_id=?", (mid,))
+
+    def set_cloud_pending(self, mid: int, pending: int):
+        self._q("UPDATE meetings SET cloud_pending=? WHERE id=?", (int(pending), mid))
+
+    def cloud_pending_meetings(self) -> list[int]:
+        return [r[0] for r in self._q(
+            "SELECT id FROM meetings WHERE cloud_pending>0 ORDER BY started_at").fetchall()]
 
     # --- segments -------------------------------------------------------
     def add_segment(self, mid: int, speaker: str, t_start: float, t_end: float, text: str,

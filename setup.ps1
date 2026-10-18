@@ -7,19 +7,24 @@
 
 .PARAMETER NoShortcuts
     Don't create Start Menu / desktop shortcuts.
+.PARAMETER Local
+    Also install the on-device AI (Ollama, Whisper and Hinglish speech models, ~5 GB) for the "This PC only"
+    engine. Without it LocalNotes uses Groq's cloud (the default), which needs only a free API key.
 .PARAMETER SkipOllama
-    Don't install Ollama or download the AI model (AI notes won't work until you do).
+    With -Local: don't install Ollama or download the AI model.
 .PARAMETER SkipSpeechModels
-    Don't pre-download the Whisper speech models (they download on first use instead).
+    With -Local: don't pre-download the Whisper speech models (they download on first use instead).
 .PARAMETER SkipHinglish
-    Don't build the Hinglish (Hindi + English) speech models (~1 GB on disk, ~2 GB download).
+    With -Local: don't build the Hinglish (Hindi + English) speech models (~1 GB on disk, ~2 GB download).
 #>
 param(
     [switch]$NoShortcuts,
+    [switch]$Local,
     [switch]$SkipOllama,
     [switch]$SkipSpeechModels,
     [switch]$SkipHinglish
 )
+if (-not $Local) { $SkipOllama = $SkipSpeechModels = $SkipHinglish = $true }
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"   # Invoke-WebRequest is very slow with the progress bar on
@@ -83,9 +88,18 @@ if (-not (Test-Path $SegModel)) {
 if (-not (Test-Path $EmbModel)) { Invoke-WebRequest $EmbUrl -OutFile $EmbModel }
 Ok $Models
 
-# --- 4. Ollama + local AI model (~2 GB) -------------------------------------
+# --- 4. Groq API key (cloud engine) -------------------------------------------
+Step "Groq API key"
+if ((Test-Path (Join-Path $Data "groq.key")) -or (Test-Path (Join-Path $Data "groq-key.txt"))) {
+    Ok "saved"
+} else {
+    Warn "not set yet. Get a free key at https://console.groq.com/keys, then paste it in LocalNotes:"
+    Warn "Settings > Cloud AI > Groq API key. (It is stored encrypted with your Windows account.)"
+}
+
+# --- 4b. Ollama + local AI model (~2 GB, -Local only) -------------------------
 if ($SkipOllama) {
-    Warn "skipped Ollama (AI notes need it: https://ollama.com, then 'ollama pull $OllamaModel')"
+    if ($Local) { Warn "skipped Ollama (local notes need it: https://ollama.com, then 'ollama pull $OllamaModel')" }
 } else {
     Step "Ollama and the $OllamaModel AI model"
     $OllamaExe = Join-Path $env:LOCALAPPDATA "Programs\Ollama\ollama.exe"
@@ -107,7 +121,7 @@ if ($SkipOllama) {
 
 # --- 5. Speech models (~1.8 GB, otherwise downloaded on first use) ----------
 if ($SkipSpeechModels) {
-    Warn "skipped speech models (they download the first time they're needed)"
+    if ($Local) { Warn "skipped speech models (they download the first time they're needed)" }
 } else {
     Step "Speech-to-text models"
     $env:HF_HUB_DISABLE_SYMLINKS_WARNING = "1"
@@ -117,7 +131,7 @@ if ($SkipSpeechModels) {
 
 # --- 5b. Hinglish speech models (Oriserve, converted locally) ------------------
 if ($SkipHinglish) {
-    Warn "skipped Hinglish models (build later with tools\build_hinglish_model.ps1)"
+    if ($Local) { Warn "skipped Hinglish models (build later with tools\build_hinglish_model.ps1)" }
 } else {
     Step "Hinglish speech models (Hindi + English)"
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root "tools\build_hinglish_model.ps1")
@@ -138,7 +152,7 @@ if (-not $NoShortcuts) {
         $s.Arguments = '"' + (Join-Path $Root "app.py") + '"'
         $s.WorkingDirectory = $Root
         $s.IconLocation = Join-Path $Root "assets\localnotes.ico"
-        $s.Description = "Private, local meeting notes"
+        $s.Description = "Private meeting notes"
         $s.Save()
     }
     Ok "Start Menu and desktop"

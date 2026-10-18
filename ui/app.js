@@ -23,6 +23,8 @@ const S = {
   chats: {},                   // meeting_id -> [{role, content}]
   asking: false,
   ollama: {},
+  cloud: {},                    // {has_key, hint, issue, models, queued}
+  catchupSeen: {},              // meeting_id -> true once a "missed audio" step ran
   homeVisible: true,
 };
 
@@ -204,6 +206,7 @@ async function loadList() {
     if (g !== group) { html += `<div class="group-label">${esc(g)}</div>`; group = g; }
     const live = m.id === S.recordingId;
     const sub = live ? `<span style="color:var(--live);font-weight:600">Recording…</span>`
+      : m.queued ? `<span class="m-queued" title="The transcript and notes finish when the cloud is reachable">${ic("cloud")}Waiting to finish</span>`
       : `${timeOf(m.started_at)}${m.ended_at ? " · " + durLabel(minutes(m)) : ""}${APP_NAMES[m.app] ? " · " + APP_NAMES[m.app] : ""}`;
     html += `<div class="m-item ${m.id === S.currentId ? "active" : ""}" data-id="${m.id}" role="button" tabindex="0"
         aria-label="${esc(m.title)}">${appChip(m.app, live)}
@@ -282,14 +285,17 @@ function heroHtml() {
 }
 async function renderHome() {
   const [home, st] = await Promise.all([api.get_home(), api.get_state()]);
-  S.ollama = st.ollama;
+  S.ollama = st.ollama; S.cloud = st.cloud; S.settings = st.settings;
   home.recent = home.recent.filter((m) => !pendingDeletes.has(m.id));
   home.tasks = home.tasks.filter((t) => !pendingDeletes.has(t.meeting_id));
   const s = home.stats;
   $("nav-tasks").textContent = s.open_tasks || "";
   const date = new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
   let sys = "";
-  if (!S.ollama.running) sys = `<div class="sys-check">${ic("alert")}<span>Ollama isn't running, so AI notes can't be written. Open the <b>Ollama</b> app from the Start menu.</span></div>`;
+  if (S.settings.engine === "cloud") {
+    if (!S.cloud.has_key) sys = `<div class="sys-check">${ic("alert")}<span>Add your free Groq API key so LocalNotes can transcribe and write notes.</span><button class="btn sm" data-act="cloud-settings">Add key</button></div>`;
+    else if (S.cloud.queued && S.cloud.issue) sys = `<div class="sys-check">${ic("cloud")}<span>${S.cloud.queued === 1 ? "1 meeting is" : `${S.cloud.queued} meetings are`} waiting to be finished. ${esc(S.cloud.issue)}</span></div>`;
+  } else if (!S.ollama.running) sys = `<div class="sys-check">${ic("alert")}<span>Ollama isn't running, so AI notes can't be written. Open the <b>Ollama</b> app from the Start menu.</span></div>`;
   else if (!S.ollama.model_ready) sys = `<div class="sys-check">${ic("alert")}<span>The AI model isn't downloaded yet. Run <code>ollama pull ${esc(S.settings.ollama_model)}</code> in a terminal.</span></div>`;
 
   const hours = Math.floor(s.week_minutes / 60), mins = s.week_minutes % 60;
@@ -303,7 +309,7 @@ async function renderHome() {
     body = `<div class="section-title">How it works</div><div class="onboard">
       <div class="step-card"><div class="n">1</div><b>Join a call</b><p>LocalNotes notices Zoom, Teams or Meet and offers to take notes. Or press <kbd>Ctrl N</kbd>.</p></div>
       <div class="step-card"><div class="n">2</div><b>Jot rough notes</b><p>Type the few things that matter to you. The transcript captures the rest.</p></div>
-      <div class="step-card"><div class="n">3</div><b>Get clean notes</b><p>When the call ends, local AI writes notes and action items — nothing leaves this PC.</p></div></div>`;
+      <div class="step-card"><div class="n">3</div><b>Get clean notes</b><p>When the call ends, AI writes notes and action items. Your recordings and notes stay on this PC.</p></div></div>`;
   } else {
     const tasks = home.tasks.length ? home.tasks.map((t) => `
       <div class="task" data-mid="${t.meeting_id}" data-idx="${t.index}">
@@ -330,6 +336,7 @@ $("view-home").addEventListener("click", async (e) => {
   if (act === "dismiss") { await api.dismiss_detection(); return; }
   if (act === "open-live") return openMeeting(S.recordingId);
   if (act === "detect-on") { $("detect-status").click(); return; }
+  if (act === "cloud-settings") return openSettings("sec-cloud");
   const open = e.target.closest("[data-open]");
   if (open && !e.target.classList.contains("check")) return openMeeting(Number(open.dataset.open));
 });
@@ -565,19 +572,21 @@ function drawAI() {
     (last?.lastElementChild?.tagName === "LI" ? last.lastElementChild : last)?.classList.add("caret");
     return;
   }
+  const queued = m.queued ? `<div class="queued-box">${ic("cloud")}<span><b>Waiting to finish.</b> ${esc(m.queued_reason || "The transcript and notes are finished automatically when you're back online.")}</span><button class="btn sm" data-act="regen">${ic("refresh")}Try now</button></div>` : "";
+  if (queued && !m.ai_notes) { pane.innerHTML = queued; return; }
   if (S.notesError) {
     pane.innerHTML = `<div class="error-box">${esc(S.notesError)}</div><p><button class="btn sm" data-act="regen">${ic("refresh")}Try again</button></p>`;
     return;
   }
   if (m.ai_notes) {
-    pane.innerHTML = `<div class="md">${renderMarkdown(m.ai_notes, { notes: true, title: m.title, interactive: true })}</div>`;
+    pane.innerHTML = `${queued}<div class="md">${renderMarkdown(m.ai_notes, { notes: true, title: m.title, interactive: true })}</div>`;
     return;
   }
   const hasContent = (m.segments || []).length || m.user_notes.trim();
   pane.innerHTML = live
     ? `<div class="empty-doc"><div class="big-ic">${ic("sparkle")}</div><h3>Notes appear after the call</h3><p>Keep jotting in <b>My notes</b>. When you stop, AI combines them with the transcript.</p></div>`
     : hasContent
-      ? `<div class="empty-doc"><div class="big-ic">${ic("sparkle")}</div><h3>Turn this into clean notes</h3><p>Local AI will combine your notes and the transcript.</p><button class="btn primary lg" data-act="regen">${ic("sparkle")}Generate notes</button></div>`
+      ? `<div class="empty-doc"><div class="big-ic">${ic("sparkle")}</div><h3>Turn this into clean notes</h3><p>AI will combine your notes and the transcript.</p><button class="btn primary lg" data-act="regen">${ic("sparkle")}Generate notes</button></div>`
       : `<div class="empty-doc"><div class="big-ic">${ic("mic")}</div><h3>Nothing captured</h3><p>This meeting has no transcript or notes.</p></div>`;
 }
 $("pane-ai").addEventListener("click", (e) => { if (e.target.closest("[data-act=regen]")) generate(); });
@@ -601,14 +610,17 @@ function renderStepper() {
   const m = S.meeting, host = $("stepper");
   const stage = m && S.pipeline[m.id];
   if (!stage) { host.innerHTML = ""; return; }
+  const cloudMode = S.settings.engine === "cloud";
   const steps = [["transcribing", "Transcript"]];
   if (S.settings.identify_speakers) steps.push(["speakers", "Speakers"]);
+  if (stage === "catchup") S.catchupSeen[m.id] = true;
+  if (cloudMode && S.catchupSeen[m.id]) steps.push(["catchup", "Missed audio"]);
   steps.push(["notes", "Writing notes"]);
-  if (S.settings.refine_model !== "off") steps.push(["refining", "Accuracy pass"], ["renotes", "Final notes"]);
+  if (!cloudMode && S.settings.refine_model !== "off") steps.push(["refining", "Accuracy pass"], ["renotes", "Final notes"]);
   const cur = stage === "done" ? steps.length : steps.findIndex(([k]) => k === stage);
   host.innerHTML = `<div class="stepper">${steps.map(([k, label], i) => {
     const st = i < cur ? "done" : i === cur ? "active" : "";
-    const subText = k === "refining" ? S.refineText[m.id] : k === "speakers" ? S.speakerText[m.id] : "";
+    const subText = k === "refining" || k === "catchup" ? S.refineText[m.id] : k === "speakers" ? S.speakerText[m.id] : "";
     const sub = st === "active" && subText ? ` <span class="s-sub">${esc(subText)}</span>` : "";
     return `${i ? `<span class="step-line ${i <= cur ? "done" : ""}"></span>` : ""}<span class="step ${st}"><span class="s-ic"></span>${label}${sub}</span>`;
   }).join("")}</div>`;
@@ -821,7 +833,7 @@ function renderFollowup(final = false) {
     if (S.followup.streaming) $("fu-text").scrollTop = $("fu-text").scrollHeight;
   }
   $("fu-text").classList.toggle("streaming", S.followup.streaming);
-  $("fu-status").textContent = S.followup.streaming ? "Writing your email…" : "Drafted locally from your notes — review before sending.";
+  $("fu-status").textContent = S.followup.streaming ? "Writing your email…" : "Drafted from your notes — review before sending.";
   ["fu-regen", "fu-copy", "fu-open"].forEach((id) => { $(id).disabled = S.followup.streaming; });
   $("fu-tone").querySelectorAll("button").forEach((b) => { b.disabled = S.followup.streaming; });
 }
@@ -1119,13 +1131,14 @@ $("btn-search").addEventListener("click", openPalette);
 // Every control saves the moment it changes — no Save/Cancel step to forget.
 async function openSettings(section) {
   const st = await api.get_state();
-  S.settings = st.settings; S.ollama = st.ollama;
+  S.settings = st.settings; S.ollama = st.ollama; S.cloud = st.cloud;
   const dlg = $("settings");
+  $("cloud-models").innerHTML = Object.entries(st.cloud.models).map(([v, label]) => `<option value="${esc(v)}">${esc(label)}</option>`).join("");
   await renderTemplates();
   $("enc-title").textContent = st.encrypted ? "Encrypted on this PC" : "Not encrypted";
   S.hinglishModels = st.hinglish_models;
   $("language-line").textContent = "Default for new meetings — change it on any meeting from its language tag." +
-    (st.hinglish_models ? "" : " Hinglish works best with the Hinglish speech models: run tools\\build_hinglish_model.ps1.");
+    (st.hinglish_models || S.settings.engine === "cloud" ? "" : " Hinglish works best with the Hinglish speech models: run tools\\build_hinglish_model.ps1.");
   $("app-version").textContent = `LocalNotes v${st.version}`;
   const hk = $("hotkey-warning");
   hk.hidden = !st.hotkeys_failed?.length;
@@ -1141,6 +1154,10 @@ async function openSettings(section) {
   $("ollama-line").textContent = !st.ollama.running ? "Ollama isn't running — start the Ollama app."
     : st.ollama.model_ready ? "Runs locally — nothing leaves this PC." : "Model not downloaded yet.";
   $("set-saved").classList.remove("show");
+  renderCloudKey();
+  $("cloud-test-line").textContent = "Check that the key works and Groq is reachable.";
+  $("cloud-test-line").className = "";
+  applyEngine();
   dlg.showModal();
   goToSection(section || "sec-meetings", false);
 }
@@ -1162,6 +1179,7 @@ async function saveSetting(patch) {
     return false;
   }
   S.settings = await api.save_settings(patch);
+  if ("engine" in patch) applyEngine();
   const s = $("set-saved");
   s.innerHTML = `${ic("check")}Saved`;
   s.classList.add("show");
@@ -1176,6 +1194,54 @@ $("settings").addEventListener("change", (e) => {
   const el = e.target.closest("[name]");
   if (!el || el.classList.contains("hotkey-input")) return;
   saveSetting({ [el.name]: el.type === "checkbox" ? el.checked : el.value.trim() });
+});
+
+// cloud AI: engine, Groq key (never shown again once saved), connection test
+function applyEngine() {
+  const cloud = S.settings.engine === "cloud";
+  $("settings").querySelectorAll(".cloud-only").forEach((el) => { el.hidden = !cloud; });
+  $("settings").querySelectorAll(".local-only").forEach((el) => { el.hidden = cloud; });
+  $("engine-line").textContent = cloud
+    ? "Groq transcribes and writes notes, so your PC stays light. Recordings stay on this PC."
+    : "Whisper and Ollama run on this PC. Nothing leaves it, but it needs the local models and a lot of CPU.";
+  $("cloud-privacy-text").textContent = cloud
+    ? "Recordings, notes and voice profiles are stored only on this PC. To transcribe and write notes, audio and transcripts are sent to Groq over an encrypted connection; Groq says it doesn't use them to train models."
+    : "Everything is processed on this PC. Nothing is sent anywhere.";
+}
+function renderCloudKey(msg, kind, keepInput) {
+  const c = S.cloud, line = $("cloud-key-line");
+  if (!keepInput) $("cloud-key").value = "";
+  $("cloud-key").placeholder = c.has_key ? "Paste a new key" : "gsk_…";
+  $("cloud-key-remove").hidden = !c.has_key;
+  line.textContent = msg || (c.has_key ? `Saved and encrypted on this PC (${c.hint}).`
+    : "Free from console.groq.com → API Keys. Stored encrypted on this PC.");
+  line.className = kind || "";
+}
+$("cloud-key-save").addEventListener("click", async () => {
+  const input = $("cloud-key"), key = input.value.trim();
+  if (!key) { input.focus(); return; }
+  $("cloud-key-save").disabled = true;
+  renderCloudKey("Checking the key with Groq…", "", true);
+  const r = await api.set_cloud_key(key);
+  $("cloud-key-save").disabled = false;
+  S.cloud = { ...S.cloud, has_key: r.has_key ?? S.cloud.has_key, hint: r.hint ?? S.cloud.hint };
+  if (r.ok) { renderCloudKey(`Saved and working (${r.hint}).`, "ok"); toast("Groq key saved"); }
+  else if (r.saved) renderCloudKey(`Saved, but couldn't check it: ${r.error}`, "err");
+  else renderCloudKey(r.error, "err", true);
+  if (S.homeVisible) renderHome();
+});
+$("cloud-key").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("cloud-key-save").click(); } });
+$("cloud-key-remove").addEventListener("click", async () => {
+  S.cloud = { ...S.cloud, ...(await api.remove_cloud_key()) };
+  renderCloudKey("Key removed.");
+  if (S.homeVisible) renderHome();
+});
+$("cloud-test").addEventListener("click", async () => {
+  const line = $("cloud-test-line");
+  line.textContent = "Testing…"; line.className = "";
+  const r = await api.test_cloud();
+  line.textContent = r.ok ? `Connected — speech-to-text and ${r.chat_models.length} notes models are available.` : r.error;
+  line.className = r.ok ? "ok" : "err";
 });
 
 // section rail: click to jump, and it follows your scrolling
@@ -1356,10 +1422,18 @@ window.onEvent = (e) => {
       break;
 
     case "pipeline":
+      if (e.stage === "waiting") {             // queued for the cloud: usable now, finished automatically later
+        delete S.pipeline[e.meeting_id]; delete S.refineText[e.meeting_id]; delete S.catchupSeen[e.meeting_id];
+        if (isCur(e)) { S.meeting.queued = true; S.meeting.queued_reason = e.reason; S.streaming = false; renderStepper(); updateToolbar(); renderAI(); renderTranscript(); }
+        loadList();
+        if (S.homeVisible) renderHome();
+        break;
+      }
+      if (isCur(e) && e.stage !== "done") S.meeting.queued = false;
       S.pipeline[e.meeting_id] = e.stage;
       if (isCur(e)) { renderStepper(); updateToolbar(); $("tab-transcript").classList.toggle("refining", e.stage === "refining"); }
       if (e.stage === "done") {
-        delete S.refineText[e.meeting_id];
+        delete S.refineText[e.meeting_id]; delete S.catchupSeen[e.meeting_id];
         setTimeout(() => {
           delete S.pipeline[e.meeting_id];
           if (isCur(e)) openMeeting(e.meeting_id, { view: S.view });
@@ -1405,6 +1479,24 @@ window.onEvent = (e) => {
         updateToolbar(); renderAI();
       } else toast("AI notes are ready");
       if (S.homeVisible) renderHome();
+      break;
+    case "notes_queued":
+      dismissToast("wrap");
+      if (isCur(e)) { S.streaming = false; S.meeting.queued = true; S.meeting.queued_reason = e.reason; updateToolbar(); renderAI(); }
+      toast(e.reason, { id: "queued", timeout: 7000 });
+      loadList();
+      break;
+    case "catchup_progress": {
+      const pct = e.text.match(/(\d+)%/);
+      S.refineText[e.meeting_id] = pct ? `${pct[1]}%` : "";
+      if (isCur(e)) renderStepper();
+      break;
+    }
+    case "cloud":
+      S.cloud = { ...S.cloud, issue: e.ok ? "" : e.reason };
+      if (!e.ok && S.recordingId) toast(/key/i.test(e.reason) ? `Still recording, but nothing is transcribed yet: ${e.reason}`
+        : "Can't reach the cloud — still recording. The missed part is transcribed when you're back online.", { id: "cloud", timeout: 8000 });
+      else if (e.ok && S.recordingId) toast("Back online — live transcript resumed", { id: "cloud" });
       break;
     case "notes_error":
       dismissToast("wrap");

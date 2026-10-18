@@ -41,6 +41,7 @@
   <symbol id="i-chev" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
   <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></symbol>
   <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5z"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18.5h10.5a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.6 9.1 4.75 4.75 0 0 0 7 18.5z"/></symbol>
   <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
   <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6.5 10h1M10.5 10h1M14.5 10h1M6.5 14h11"/></symbol>
   <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></symbol>
@@ -155,6 +156,7 @@
   <div class="set-layout">
   <nav class="set-nav" aria-label="Settings sections">
     <button data-sec="sec-meetings" class="active"><svg class="i"><use href="#i-video"/></svg>Meetings</button>
+    <button data-sec="sec-cloud"><svg class="i"><use href="#i-cloud"/></svg>Cloud AI</button>
     <button data-sec="sec-transcription"><svg class="i"><use href="#i-lines"/></svg>Transcription</button>
     <button data-sec="sec-speakers"><svg class="i"><use href="#i-users"/></svg>Speakers</button>
     <button data-sec="sec-ai"><svg class="i"><use href="#i-sparkle"/></svg>AI &amp; templates</button>
@@ -170,6 +172,23 @@
       <div class="row"><div class="row-text"><b>Stop when the call ends</b><span>Recording stops when the meeting app releases the microphone.</span></div><label class="switch"><input type="checkbox" name="auto_stop"></label></div>
       <div class="row"><div class="row-text"><b>Floating widget</b><span>Shows on top of other apps when a call is detected and while recording.</span></div><label class="switch"><input type="checkbox" name="show_widget"></label></div>
     </div>
+    <div class="set-section" id="sec-cloud">
+      <h3>Cloud AI</h3>
+      <div class="row"><div class="row-text"><b>Process meetings with</b><span id="engine-line">Groq transcribes and writes notes, so your PC stays light. Recordings stay on this PC.</span></div>
+        <select name="engine">
+          <option value="cloud">Groq cloud (recommended)</option>
+          <option value="local">This PC only</option>
+        </select></div>
+      <div class="row cloud-only"><div class="row-text"><b>Groq API key</b><span id="cloud-key-line">Free from console.groq.com → API Keys. Stored encrypted on this PC.</span></div>
+        <div class="key-box"><input type="password" id="cloud-key" placeholder="gsk_…" autocomplete="off" spellcheck="false" aria-label="Groq API key">
+          <button id="cloud-key-save" class="btn sm primary">Save</button>
+          <button id="cloud-key-remove" class="btn sm ghost" hidden>Remove</button></div></div>
+      <div class="row cloud-only"><div class="row-text"><b>Connection</b><span id="cloud-test-line">Check that the key works and Groq is reachable.</span></div>
+        <button id="cloud-test" class="btn sm"><svg class="i"><use href="#i-refresh"/></svg>Test connection</button></div>
+      <div class="row cloud-only"><div class="row-text"><b>Notes model</b><span>Writes notes, follow-up emails and answers to your questions.</span></div>
+        <select name="cloud_model" id="cloud-models"></select></div>
+      <p class="set-legal cloud-only">With no internet, LocalNotes keeps recording and saves the audio. The transcript and notes are finished automatically when you're back online.</p>
+    </div>
     <div class="set-section" id="sec-transcription">
       <h3>Transcription</h3>
       <div class="row"><div class="row-text"><b>Meeting language</b><span id="language-line">Default for new meetings — change it on any meeting from its language tag.</span></div>
@@ -179,14 +198,14 @@
           <option value="hi">Hindi</option>
           <option value="auto">Auto-detect</option>
         </select></div>
-      <div class="row"><div class="row-text"><b>Live transcript model</b><span>Runs during the call.</span></div>
+      <div class="row local-only"><div class="row-text"><b>Live transcript model</b><span>Runs during the call.</span></div>
         <select name="whisper_model">
           <option value="tiny.en">Tiny — lightest</option>
           <option value="base.en">Base — balanced (recommended)</option>
           <option value="small.en">Small — sharper, more CPU</option>
           <option value="small">Small multilingual</option>
         </select></div>
-      <div class="row"><div class="row-text"><b>After-call accuracy pass</b><span>Re-transcribes the call with a stronger model, then rewrites the notes.</span></div>
+      <div class="row local-only"><div class="row-text"><b>After-call accuracy pass</b><span>Re-transcribes the call with a stronger model, then rewrites the notes.</span></div>
         <select name="refine_model">
           <option value="large-v3-turbo">Large v3 Turbo — best (recommended)</option>
           <option value="distil-large-v3">Distil Large v3 — faster, English</option>
@@ -221,7 +240,7 @@
       <div class="row" style="padding-bottom:4px"><div class="row-text"><b>Templates</b><span>Your own note formats. Built-ins can be used as a starting point.</span></div>
         <button id="tpl-new" class="btn sm"><svg class="i"><use href="#i-plus"/></svg>New template</button></div>
       <div id="tpl-list" class="voice-list"></div>
-      <div class="row"><div class="row-text"><b>Ollama model</b><span id="ollama-line">Runs locally — nothing leaves this PC.</span></div>
+      <div class="row local-only"><div class="row-text"><b>Ollama model</b><span id="ollama-line">Runs locally — nothing leaves this PC.</span></div>
         <input type="text" name="ollama_model" list="ollama-models"><datalist id="ollama-models"></datalist></div>
     </div>
     <div class="set-section" id="sec-shortcuts">
@@ -248,6 +267,7 @@
     </div>
     <div class="set-section" id="sec-privacy">
       <h3>Privacy</h3>
+      <div class="row"><div class="row-text"><b>Where your meetings are processed</b><span id="cloud-privacy-text"></span></div></div>
       <div class="row"><div class="row-text"><b id="enc-title">Encrypted on this PC</b><span id="enc-text">Notes, transcripts and voice profiles are encrypted with AES-256. The key is protected by your Windows account, so the data can't be read if the files are copied elsewhere.</span></div><div class="enc-badge"><svg class="i"><use href="#i-lock"/></svg>AES-256</div></div>
       <p class="set-legal">Only record people who know they're being recorded, and follow the laws that apply to you. <span id="app-version"></span></p>
     </div>
@@ -266,7 +286,7 @@
     <label class="fu-label">Subject<input id="fu-subject" type="text" placeholder="Subject"></label>
     <label class="fu-label">Message<textarea id="fu-text" rows="14" placeholder="Writing your email…"></textarea></label>
   </div>
-  <div class="set-foot"><span id="fu-status" class="note">Drafted locally from your notes — review before sending.</span>
+  <div class="set-foot"><span id="fu-status" class="note">Drafted from your notes — review before sending.</span>
     <button id="fu-copy" class="btn"><svg class="i"><use href="#i-copy"/></svg>Copy</button>
     <button id="fu-open" class="btn primary"><svg class="i"><use href="#i-mail"/></svg>Open in mail app</button></div>
 </dialog>

@@ -12,7 +12,7 @@ publishers by `setup.ps1` or on first use. Their licences apply to those downloa
 | pyannote segmentation-3.0 (ONNX export) | Speaker segmentation | k2-fsa/sherpa-onnx releases | MIT |
 | NVIDIA NeMo TitaNet small (ONNX export) | Speaker embeddings | k2-fsa/sherpa-onnx releases | CC-BY-4.0 |
 | Oriserve Whisper-Hindi2Hinglish Apex & Swift (converted locally to CTranslate2) | Hinglish speech-to-text | Hugging Face (Oriserve) | Apache-2.0 |
-| Qwen3 4B Instruct | Notes, Ask, follow-up emails | Ollama registry | Apache-2.0 |
+| Qwen3 4B Instruct (on-device engine) | Notes, Ask, follow-up emails | Ollama registry | Apache-2.0 |
 | Llama 3.2 3B (optional, previous default) | Notes, Ask, follow-up emails | Ollama registry | Llama 3.2 Community License |
 
 ## Python packages
@@ -35,5 +35,11 @@ publishers by `setup.ps1` or on first use. Their licences apply to those downloa
 | Software | Licence |
 |---|---|
 | Ollama | MIT |
+
+## Cloud services
+
+The default cloud engine calls the [Groq API](https://console.groq.com/docs) with the user's own API key, under
+Groq's terms of service. Models used there: Whisper large-v3 (MIT), Qwen 3.8 27B (Apache-2.0),
+GPT-OSS 120B / 20B (Apache-2.0).
 
 Licences are summarised for convenience; the upstream licence texts are authoritative.

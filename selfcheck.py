@@ -37,7 +37,7 @@ def _():
 
 @check("App modules")
 def _():
-    for mod in ("app", "audio", "db", "detector", "hotkeys", "securestore", "speakers",
+    for mod in ("app", "audio", "cloud", "db", "detector", "hotkeys", "languages", "securestore", "speakers",
                 "summarize", "templates", "transcribe", "tray"):
         importlib.import_module(mod)
     return "all importable"
@@ -81,8 +81,30 @@ def _():
     return str(speakers.MODELS_DIR)
 
 
+def _cloud_mode() -> bool:
+    import app
+    return app.load_settings()["engine"] == "cloud"
+
+
+@check("Cloud AI (Groq)", essential=False)
+def _():
+    if not _cloud_mode():
+        return "not used (engine: this PC only)"
+    import app
+    import cloud
+    keys = cloud.KeyStore(app.DATA_DIR)
+    if not keys.get() and not keys.import_path.exists():
+        raise RuntimeError("no API key yet — add one in Settings → Cloud AI (free at console.groq.com/keys)")
+    if not keys.get():
+        return "key will be imported on first start"
+    info = cloud.Groq(keys).ping()
+    return f"connected ({keys.hint()}), {len(info['chat_models'])} notes models"
+
+
 @check("Hinglish speech models", essential=False)
 def _():
+    if _cloud_mode():
+        return "not needed in cloud mode"
     import languages
     missing = [n for n in languages.LOCAL_MODEL_DIRS if not languages.local_model_available(n)]
     if missing:
@@ -92,6 +114,8 @@ def _():
 
 @check("Ollama + AI model", essential=False)
 def _():
+    if _cloud_mode():
+        return "not needed in cloud mode"
     import app
     import summarize
     model = app.load_settings()["ollama_model"]

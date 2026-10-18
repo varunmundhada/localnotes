@@ -285,10 +285,20 @@ class TestLanguages(unittest.TestCase):
         self.assertEqual(api._meeting_language(mid), "hi")
         api._meeting_id = mid                                   # mid-call: live transcriber follows
         try:
+            api.save_settings({"engine": "local"})
             api.set_meeting_language(mid, "en")
             self.assertEqual((api._transcriber.model_name, api._transcriber.language), (api._settings["whisper_model"], "en"))
             api.set_meeting_language(mid, "hi")
             self.assertEqual((api._transcriber.model_name, api._transcriber.language), ("base", "hi"))
+            self.assertIsNone(api._transcriber.cloud)
+            api.save_settings({"engine": "cloud"})              # Groq: Hindi token + code-switched seed for Hinglish
+            self.assertIs(api._transcriber.cloud, api._groq)
+            api.set_meeting_language(mid, "hinglish")
+            self.assertEqual(api._transcriber.language, "hi")
+            self.assertIn("meeting", api._transcriber.seed)
+            api.set_meeting_language(mid, "auto")
+            self.assertEqual((api._transcriber.language, api._transcriber.seed), (None, ""))
+            api.set_meeting_language(mid, "hi")
         finally:
             api._meeting_id = None
         api.save_settings({"notes_language": "same"})

@@ -1,19 +1,23 @@
-"""Speech-to-text with faster-whisper on CPU.
+"""Speech-to-text: Whisper large-v3 on Groq (cloud mode), or faster-whisper on the CPU (local mode).
 
 Live pass: short chunks transcribed as they arrive, using the previous sentence
-and the user's vocabulary as context so chunks read continuously.
-Refine pass: after the meeting, the full per-speaker recordings are transcribed
-again with a larger model and replace the live draft.
+and the user's vocabulary as context so chunks read continuously. In cloud mode a
+chunk that can't be sent (offline, rate limit, no key) is reported as a gap and
+filled in from the saved recording later (cloud_fill).
+Refine pass (local mode): after the meeting, the full per-speaker recordings are
+transcribed again with a larger model and replace the live draft.
 """
 import difflib
 import queue
 import threading
 import time
 import wave
+from types import SimpleNamespace
 
 import numpy as np
 from faster_whisper import BatchedInferencePipeline, WhisperModel
 
+from cloud import AuthError, Offline, RateLimited, with_retries
 from languages import LOCAL_MODEL_DIRS
 
 # Whisper tends to invent these on near-silent audio.
@@ -29,6 +33,7 @@ MAX_GAIN = 20.0          # don't boost quiet mics so far that background hiss do
 PROMPT_CHARS = 220       # previous text carried into the next chunk
 REFINE_THREADS = 8       # batched refine on an i5-1340P: 8 threads/batch 8 measured fastest
 REFINE_BATCH = 8
+OFFLINE_RETRY_S = 20.0   # after a failed cloud call, queue chunks straight away for this long instead of retrying each
 
 
 def normalize(audio: np.ndarray) -> np.ndarray:
@@ -85,6 +90,12 @@ class Transcriber:
         self.model_name = model_name
         self.language: str | None = "en"     # Whisper language hint; None = auto-detect
         self.vocabulary = ""
+        self.cloud = None                     # cloud.Groq when processing in the cloud, else local Whisper
+        self.seed = ""                        # prompt for a speaker's first chunk (cloud Hinglish)
+        self.on_gap = lambda mid, speaker, t0, t1: None   # a chunk the cloud couldn't take: fill in later
+        self.on_cloud = lambda ok, reason: None           # cloud reachable again / not (with the reason)
+        self._cloud_ok = True
+        self._offline_until = 0.0
         self.on_segment = on_segment
         self.on_status = on_status or (lambda s: None)
         self.identify = identify or (lambda channel, audio: None)
@@ -118,16 +129,23 @@ class Transcriber:
         while True:
             mid, speaker, t0, audio = self._q.get()
             try:
-                self._load()
                 key = (mid, speaker)
-                segments, _ = self._model.transcribe(
-                    normalize(audio),
-                    language=_language_for(self.model_name, self.language),
-                    vad_filter=True,
-                    beam_size=5,
-                    condition_on_previous_text=False,
-                    initial_prompt=build_prompt(self.vocabulary, self._previous.get(key, "")),
-                )
+                prompt = build_prompt(self.vocabulary, self._previous.get(key, "") or self.seed)
+                if self.cloud:
+                    segments = self._cloud_transcribe(audio, prompt)
+                    if segments is None:
+                        self.on_gap(mid, speaker, t0, t0 + len(audio) / 16000)
+                        continue
+                else:
+                    self._load()
+                    segments, _ = self._model.transcribe(
+                        normalize(audio),
+                        language=_language_for(self.model_name, self.language),
+                        vad_filter=True,
+                        beam_size=5,
+                        condition_on_previous_text=False,
+                        initial_prompt=prompt,
+                    )
                 name = None
                 for s in segments:
                     if not keep_segment(s):
@@ -150,6 +168,87 @@ class Transcriber:
                 self.on_status(f"Transcription error: {e}")
             finally:
                 self._q.task_done()
+
+    def cloud_reachable(self):
+        """The cloud answered elsewhere (catch-up, connection test): stop queueing live chunks straight away."""
+        self._offline_until = 0.0
+
+    def _cloud_transcribe(self, audio, prompt):
+        """-> segments, or None if the chunk has to wait for the connection / key."""
+        if time.time() < self._offline_until:
+            return None
+        try:
+            segs = with_retries(lambda: self.cloud.transcribe(normalize(audio), self.language, prompt),
+                                max_wait=15)   # live: don't hold up the queue; a gap is filled after the call
+        except (Offline, RateLimited, AuthError) as e:
+            self._offline_until = time.time() + OFFLINE_RETRY_S
+            if self._cloud_ok:
+                self._cloud_ok = False
+                self.on_cloud(False, str(e))
+            return None
+        if not self._cloud_ok:
+            self._cloud_ok = True
+            self.on_cloud(True, "")
+        return [SimpleNamespace(**s) for s in segs]
+
+
+FILL_MAX_S = 60.0        # merge adjacent gaps into requests of up to a minute (Groq bills at least 10 s each)
+
+
+def merge_gaps(gaps: list[dict], max_s: float = FILL_MAX_S) -> list[dict]:
+    """[{channel, t_start, t_end}] -> fewer, larger ranges per channel (adjacent or overlapping, up to max_s)."""
+    out: list[dict] = []
+    for g in sorted(gaps, key=lambda g: (g["channel"], g["t_start"])):
+        last = out[-1] if out else None
+        if last and last["channel"] == g["channel"] and g["t_start"] - last["t_end"] < 1.0 \
+                and g["t_end"] - last["t_start"] <= max_s:
+            last["t_end"] = max(last["t_end"], g["t_end"])
+        else:
+            out.append(dict(g))
+    return out
+
+
+def split_ranges(ranges: list[dict], piece_s: float) -> list[dict]:
+    """Cut ranges longer than piece_s into consecutive pieces."""
+    out = []
+    for r in ranges:
+        a = r["t_start"]
+        while r["t_end"] - a > 0.05:
+            b = min(r["t_end"], a + piece_s)
+            out.append({**r, "t_start": a, "t_end": b})
+            a = b
+    return out
+
+
+def cloud_fill(client, tracks: dict, gaps: list[dict], language: str | None, vocabulary: str = "",
+               on_progress=None, seed: str = "", piece_s: float = FILL_MAX_S) -> list[dict]:
+    """Transcribe the stretches the live pass missed, from the saved per-channel WAVs.
+
+    Raises cloud.Offline / RateLimited / AuthError so the caller can keep the gaps queued for later.
+    Returns [{speaker, channel, t_start, t_end, text}].
+    """
+    on_progress = on_progress or (lambda s: None)
+    audio = {ch: _read_wav(p) for ch, p in tracks.items()}
+    ranges = split_ranges([r for r in merge_gaps(gaps) if r["channel"] in audio], piece_s)
+    them: list[tuple[float, str]] = []
+    results = []
+    for i, r in enumerate(sorted(ranges, key=lambda r: r["channel"] != "Them")):   # Them first, for echo removal
+        on_progress(f"Transcribing in the cloud: {int(100 * i / len(ranges))}%")
+        piece = audio[r["channel"]][int(r["t_start"] * 16000): int(r["t_end"] * 16000)]
+        if len(piece) < 8000 or not np.any(np.abs(piece) > 0.01):
+            continue
+        segs = with_retries(lambda: client.transcribe(normalize(piece), language, build_prompt(vocabulary, seed)))
+        for s in map(lambda d: SimpleNamespace(**d), segs):
+            if not keep_segment(s):
+                continue
+            text, a = s.text.strip(), r["t_start"] + s.start
+            if r["channel"] == "Them":
+                them.append((a, text.lower()))
+            elif is_echo(a, text, them):
+                continue
+            results.append({"speaker": r["channel"], "channel": r["channel"], "t_start": a,
+                            "t_end": r["t_start"] + s.end, "text": text})
+    return results
 
 
 def _read_wav(path) -> np.ndarray:
