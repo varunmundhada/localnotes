@@ -81,6 +81,15 @@ def _():
     return str(speakers.MODELS_DIR)
 
 
+@check("Hinglish speech models", essential=False)
+def _():
+    import languages
+    missing = [n for n in languages.LOCAL_MODEL_DIRS if not languages.local_model_available(n)]
+    if missing:
+        raise RuntimeError(f"not built ({', '.join(missing)}) — run tools\\build_hinglish_model.ps1")
+    return "Swift (live) + Apex (accuracy pass)"
+
+
 @check("Ollama + AI model", essential=False)
 def _():
     import app

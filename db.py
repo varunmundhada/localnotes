@@ -135,6 +135,8 @@ class DB:
             self._conn.execute("ALTER TABLE meetings ADD COLUMN template_id TEXT")
         if "followup" not in mcols:
             self._conn.execute("ALTER TABLE meetings ADD COLUMN followup TEXT NOT NULL DEFAULT ''")
+        if "language" not in mcols:   # NULL = the default from settings
+            self._conn.execute("ALTER TABLE meetings ADD COLUMN language TEXT")
         cols = {r[1] for r in self._conn.execute("PRAGMA table_info(segments)")}
         if "channel" not in cols:   # older databases: speaker used to be the channel
             self._conn.execute("ALTER TABLE segments ADD COLUMN channel TEXT")
@@ -169,7 +171,7 @@ class DB:
         self._q("UPDATE meetings SET ended_at=? WHERE id=?", (time.time(), mid))
 
     def update_meeting(self, mid: int, **fields):
-        allowed = {"title", "user_notes", "ai_notes", "template_id", "followup"}
+        allowed = {"title", "user_notes", "ai_notes", "template_id", "followup", "language"}
         sets = {k: v for k, v in fields.items() if k in allowed}
         if not sets:
             return

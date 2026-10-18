@@ -13,6 +13,8 @@ LocalNotes is a single Python process. The UI is plain HTML/CSS/JS rendered by
 | `speakers.py` | Speaker diarization and voice fingerprints with sherpa-onnx (pyannote segmentation + TitaNet embeddings); matching against saved voice profiles. |
 | `summarize.py` | Prompts and streaming calls to Ollama: notes (with templates), Ask, follow-up emails, and output clean-up. |
 | `templates.py` | Built-in note templates and the title-based template guess. |
+| `languages.py` | Meeting languages (auto / English / Hindi / Hinglish): picks the live and after-call speech models and the Whisper language hint per meeting, and words the "write notes in" instruction. |
+| `tools/build_hinglish_model.ps1` | Converts Oriserve's Hinglish Whisper models to CTranslate2 in a throwaway PyTorch environment (run by `setup.ps1`). |
 | `db.py` | SQLCipher database: meetings, transcript segments, speakers, voice profiles, templates, FTS5 search. Migrates an unencrypted database in place, verified by row counts. |
 | `securestore.py` | Database key generation and protection with Windows DPAPI. |
 | `detector.py` | Call detection: apps currently holding the microphone (Windows consent store) plus window titles. |

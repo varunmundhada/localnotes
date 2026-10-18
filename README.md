@@ -19,6 +19,10 @@ structured meeting notes — entirely on your own Windows machine. No accounts, 
   pass** with Whisper large-v3-turbo that replaces the draft.
 - **Speaker recognition with voice profiles** — voices are separated after each call. Tag someone once
   (“Speaker 2 → Priya”) and they're named automatically in every future meeting.
+- **English, Hindi and Hinglish meetings** — set a language per meeting (or a default). Hinglish uses
+  [Oriserve's Whisper-Hindi2Hinglish](https://huggingface.co/Oriserve/Whisper-Hindi2Hinglish-Apex) models, which
+  transcribe mixed Hindi-English speech the way it's spoken, in Roman script. Notes can be written in English,
+  Hindi or Hinglish regardless of the meeting's language.
 - **AI notes from a local model** via [Ollama](https://ollama.com). Your rough notes are the backbone; the
   transcript fills in the details, decisions and action items.
 - **Templates** — General, 1:1, Customer call, Standup, Interview, Project review, Brainstorm, Lecture — picked
@@ -43,7 +47,7 @@ structured meeting notes — entirely on your own Windows machine. No accounts, 
 
 - Windows 10 or 11 (64-bit)
 - 16 GB RAM recommended (8 GB works with smaller models)
-- About 5 GB of disk for the speech and AI models
+- About 6 GB of disk for the speech and AI models
 - Python 3.12 and [Ollama](https://ollama.com) — the setup script installs both if they're missing
 
 No GPU is needed; everything runs on the CPU.
@@ -57,10 +61,10 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ```
 
 The script creates a virtual environment, installs the Python packages, downloads the speaker and speech models,
-installs Ollama with the `llama3.2:3b` model, adds Start Menu and desktop shortcuts, and finishes with a self-check.
-It is safe to run again at any time — for example after pulling updates.
+builds the Hinglish speech models, installs Ollama with the `qwen3:4b-instruct` model, adds Start Menu and desktop
+shortcuts, and finishes with a self-check. It is safe to run again at any time — for example after pulling updates.
 
-Options: `-NoShortcuts`, `-SkipOllama`, `-SkipSpeechModels`.
+Options: `-NoShortcuts`, `-SkipOllama`, `-SkipSpeechModels`, `-SkipHinglish`.
 
 To check an existing install: `.venv\Scripts\python.exe selfcheck.py`
 

@@ -16,6 +16,7 @@ os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 import webview
 
+import languages
 import securestore
 import speakers
 import summarize
@@ -41,11 +42,14 @@ TASK_RE = re.compile(r"^(\s*[-*]\s+\[)( |x|X)(\]\s+)(.*)$")
 _user32 = ctypes.windll.user32
 
 DEFAULT_SETTINGS = {
-    "whisper_model": "base.en",     # live pass: tiny.en / base.en / small.en
+    "whisper_model": "base.en",     # live pass: tiny.en / base.en / small.en (multilingual twin used for non-English)
     "refine_model": "large-v3-turbo",  # after-meeting pass; "off" to skip
+    "meeting_language": "en",       # default for new meetings: auto / en / hi / hinglish (see languages.py)
+    "notes_language": "same",       # same / en / hi / hinglish
     "vocabulary": "",               # names / jargon to spell correctly, comma or newline separated
     "keep_audio": False,            # keep the WAVs after the refine pass
-    "ollama_model": "llama3.2:3b",
+    "ollama_model": "qwen3:4b-instruct",   # writes Hindi/Hinglish well; non-thinking, so it answers straight away
+    "settings_version": 2,
     "detect_meetings": True,
     "auto_record": False,           # start recording without asking when a call is detected
     "auto_stop": True,              # stop when the detected call ends
@@ -94,9 +98,16 @@ def open_database() -> DB:
 
 def load_settings() -> dict:
     try:
-        return {**DEFAULT_SETTINGS, **json.loads(SETTINGS_PATH.read_text())}
+        saved = json.loads(SETTINGS_PATH.read_text())
     except Exception:
         return dict(DEFAULT_SETTINGS)
+    if saved.get("settings_version", 1) < 2:
+        # v2: the old default notes model (English-only in practice) becomes the multilingual one,
+        # unless the user had picked a different model on purpose.
+        if saved.get("ollama_model") == "llama3.2:3b":
+            saved["ollama_model"] = DEFAULT_SETTINGS["ollama_model"]
+        saved["settings_version"] = 2
+    return {**DEFAULT_SETTINGS, **saved}
 
 
 def system_prefers_dark() -> bool:
@@ -197,6 +208,9 @@ class Api:
             "detected": self._detected,
             "user": os.environ.get("USERNAME", "").split(".")[0].title(),
             "version": __version__,
+            "languages": languages.MEETING_LANGUAGES,
+            "notes_languages": languages.NOTES_LANGUAGES,
+            "hinglish_models": languages.local_model_available("hinglish-apex"),
         }
 
     def levels(self):
@@ -216,9 +230,8 @@ class Api:
         SETTINGS_PATH.write_text(json.dumps(self._settings, indent=2))
         self._detector.enabled = self._settings["detect_meetings"]
         self._transcriber.vocabulary = self._settings["vocabulary"]
-        if self._settings["whisper_model"] != self._transcriber.model_name:
-            self._transcriber.model_name = self._settings["whisper_model"]
-            self._transcriber.unload()     # reloads on next chunk
+        if self._meeting_id is not None:   # live model/language follow the settings mid-call too
+            self._configure_live(self._meeting_language(self._meeting_id))
         if self._settings["launch_at_login"] != before.get("launch_at_login"):
             self._apply_login_item(self._settings["launch_at_login"])
         if (self._settings["hotkey_record"], self._settings["hotkey_pause"]) != \
@@ -345,6 +358,8 @@ class Api:
             return self._meeting_id
         title = title.strip() or time.strftime("Meeting %d %b, %H:%M")
         mid = self._db.create_meeting(title, app, self._pick_template(title))
+        self._db.update_meeting(mid, language=self._settings["meeting_language"])
+        self._configure_live(self._settings["meeting_language"])
         save_audio = (self._settings["refine_model"] != "off" or self._settings["keep_audio"]
                       or (self._settings["identify_speakers"] and self._speakers is not None))
         rec = Recorder(self._on_chunk, self._settings["capture_system"], self._settings["capture_mic"],
@@ -598,16 +613,45 @@ class Api:
         threading.Thread(target=self._refine_worker, args=(mid,), daemon=True).start()
         return True
 
+    # --- languages -----------------------------------------------------------
+    def _meeting_language(self, mid: int) -> str:
+        m = self._db.get_meeting(mid)
+        return (m and m.get("language")) or self._settings["meeting_language"]
+
+    def _plan(self, language: str, refine_model: str | None = None) -> dict:
+        return languages.speech_plan(language, self._settings["whisper_model"],
+                                     refine_model or self._settings["refine_model"])
+
+    def _configure_live(self, language: str):
+        plan = self._plan(language)
+        if plan["live"] != self._transcriber.model_name:
+            self._transcriber.model_name = plan["live"]
+            self._transcriber.unload()     # reloads on the next chunk
+        self._transcriber.language = plan["live_language"]
+
+    def set_meeting_language(self, mid: int, language: str):
+        """Change a meeting's language; during a call the live transcript switches from the next sentence on."""
+        if language not in languages.MEETING_LANGUAGES:
+            return False
+        self._db.update_meeting(mid, language=language)
+        if mid == self._meeting_id:
+            self._configure_live(language)
+        return True
+
+    def _notes_language(self, mid: int) -> str:
+        return languages.notes_instruction(self._settings["notes_language"], self._meeting_language(mid))
+
     def _refine_worker(self, mid: int):
-        model = self._settings["refine_model"]
-        if model == "off":
-            model = "large-v3-turbo"
+        # "Improve transcript" can be asked for even when the automatic pass is off
+        plan = self._plan(self._meeting_language(mid),
+                          "large-v3-turbo" if self._settings["refine_model"] == "off" else None)
+        model = plan["refine"]
         with self._refine_lock:
             self._emit("refine_start", meeting_id=mid)
             try:
                 segs = refine(model, self._tracks_for(mid), self._settings["vocabulary"],
                               on_progress=lambda s: self._emit("refine_progress", meeting_id=mid, text=s),
-                              turns=self._db.speaker_turns(mid))
+                              turns=self._db.speaker_turns(mid), language=plan["refine_language"])
                 if segs:
                     self._db.replace_segments(mid, segs)
                     self._apply_speaker_labels(mid)   # keep names on the new, more accurate lines
@@ -644,6 +688,7 @@ class Api:
             notes = summarize.generate_notes(
                 self._settings["ollama_model"], m["title"], m["user_notes"], self._db.transcript_text(mid),
                 me_name=self._settings["your_name"], structure=tpl["prompt"] if tpl else "",
+                language=self._notes_language(mid),
                 on_token=lambda t: self._emit("notes_token", meeting_id=mid, text=t),
                 on_progress=lambda s: self._emit("notes_progress", meeting_id=mid, text=s),
             )
@@ -694,6 +739,7 @@ class Api:
                 text = summarize.followup_email(
                     self._settings["ollama_model"], m["title"], m["ai_notes"] or m["user_notes"],
                     self._db.transcript_text(mid), self._settings["your_name"], tone,
+                    language=self._notes_language(mid),
                     on_token=lambda t: self._emit("followup_token", meeting_id=mid, text=t))
                 self._db.update_meeting(mid, followup=text.strip())
                 self._emit("followup_done", meeting_id=mid, text=text.strip())

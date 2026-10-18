@@ -11,11 +11,14 @@
     Don't install Ollama or download the AI model (AI notes won't work until you do).
 .PARAMETER SkipSpeechModels
     Don't pre-download the Whisper speech models (they download on first use instead).
+.PARAMETER SkipHinglish
+    Don't build the Hinglish (Hindi + English) speech models (~1 GB on disk, ~2 GB download).
 #>
 param(
     [switch]$NoShortcuts,
     [switch]$SkipOllama,
-    [switch]$SkipSpeechModels
+    [switch]$SkipSpeechModels,
+    [switch]$SkipHinglish
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,7 +27,7 @@ $ProgressPreference = "SilentlyContinue"   # Invoke-WebRequest is very slow with
 $Root = $PSScriptRoot
 $Data = Join-Path $env:APPDATA "LocalNotes"
 $Models = Join-Path $Data "models"
-$OllamaModel = "llama3.2:3b"
+$OllamaModel = "qwen3:4b-instruct"
 $SegUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2"
 $EmbUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/nemo_en_titanet_small.onnx"
 
@@ -110,6 +113,15 @@ if ($SkipSpeechModels) {
     $env:HF_HUB_DISABLE_SYMLINKS_WARNING = "1"
     & $VenvPy -c "from faster_whisper import WhisperModel as W; [W(m, device='cpu', compute_type='int8') for m in ('base.en', 'large-v3-turbo')]" 2>$null
     if ($LASTEXITCODE -ne 0) { Warn "couldn't pre-download speech models; they'll download on first use" } else { Ok "base.en (live) and large-v3-turbo (accuracy pass)" }
+}
+
+# --- 5b. Hinglish speech models (Oriserve, converted locally) ------------------
+if ($SkipHinglish) {
+    Warn "skipped Hinglish models (build later with tools\build_hinglish_model.ps1)"
+} else {
+    Step "Hinglish speech models (Hindi + English)"
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root "tools\build_hinglish_model.ps1")
+    if ($LASTEXITCODE -ne 0) { Warn "couldn't build the Hinglish models; Hinglish meetings will use standard Whisper" } else { Ok "Swift (live) and Apex (accuracy pass)" }
 }
 
 # --- 6. Shortcuts -------------------------------------------------------------

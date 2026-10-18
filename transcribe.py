@@ -14,10 +14,13 @@ import wave
 import numpy as np
 from faster_whisper import BatchedInferencePipeline, WhisperModel
 
+from languages import LOCAL_MODEL_DIRS
+
 # Whisper tends to invent these on near-silent audio.
 HALLUCINATIONS = {
     "thank you.", "thanks for watching!", "thank you for watching.", "you",
     "bye.", "thank you so much.", ".", "okay.",
+    "nan", "nan.",   # Hinglish fine-tunes emit this on near-silent, noisy audio
 }
 ECHO_WINDOW_S = 12.0     # how far apart a Me/Them pair can be and still count as echo
 ECHO_SIMILARITY = 0.75
@@ -63,7 +66,13 @@ def is_echo(t: float, text: str, them: list[tuple[float, str]]) -> bool:
 
 
 def load_model(name: str, threads: int = 0) -> WhisperModel:
-    return WhisperModel(name, device="cpu", compute_type="int8", cpu_threads=threads)
+    """name is a faster-whisper model id, or one of the locally converted models in languages.LOCAL_MODEL_DIRS."""
+    source = str(LOCAL_MODEL_DIRS[name]) if name in LOCAL_MODEL_DIRS else name
+    return WhisperModel(source, device="cpu", compute_type="int8", cpu_threads=threads)
+
+
+def _language_for(model_name: str, language: str | None) -> str | None:
+    return "en" if model_name.endswith(".en") else language
 
 
 class Transcriber:
@@ -74,6 +83,7 @@ class Transcriber:
 
     def __init__(self, model_name: str, on_segment, on_status=None, identify=None):
         self.model_name = model_name
+        self.language: str | None = "en"     # Whisper language hint; None = auto-detect
         self.vocabulary = ""
         self.on_segment = on_segment
         self.on_status = on_status or (lambda s: None)
@@ -112,7 +122,7 @@ class Transcriber:
                 key = (mid, speaker)
                 segments, _ = self._model.transcribe(
                     normalize(audio),
-                    language="en" if self.model_name.endswith(".en") else None,
+                    language=_language_for(self.model_name, self.language),
                     vad_filter=True,
                     beam_size=5,
                     condition_on_previous_text=False,
@@ -178,7 +188,7 @@ def turn_clips(turns: list[dict], channel: str, n_samples: int) -> list[dict] | 
 
 
 def refine(model_name: str, tracks: dict, vocabulary: str = "", on_progress=None,
-           turns: list[dict] | None = None) -> list[dict]:
+           turns: list[dict] | None = None, language: str | None = "en") -> list[dict]:
     """Re-transcribe full per-speaker recordings with a stronger model.
 
     tracks maps speaker -> WAV path; turns (optional) are the diarized voice turns,
@@ -199,7 +209,7 @@ def refine(model_name: str, tracks: dict, vocabulary: str = "", on_progress=None
             continue
         segments, _ = model.transcribe(
             normalize(audio),
-            language="en" if model_name.endswith(".en") else None,
+            language=_language_for(model_name, language),
             batch_size=REFINE_BATCH,
             beam_size=5,
             initial_prompt=build_prompt(vocabulary),

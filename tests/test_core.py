@@ -211,6 +211,93 @@ class TestTemplatesAndText(unittest.TestCase):
         self.assertEqual(app.first_line_summary("- [ ] task only"), "")
 
 
+class TestLanguages(unittest.TestCase):
+    def setUp(self):
+        import languages
+        self.L = languages
+        self._orig = languages.LOCAL_MODEL_DIRS.copy()
+        self.models = TMP / f"models-{os.urandom(3).hex()}"
+        languages.LOCAL_MODEL_DIRS.update({k: self.models / v.name for k, v in self._orig.items()})
+
+    def tearDown(self):
+        self.L.LOCAL_MODEL_DIRS.update(self._orig)
+
+    def install_hinglish(self):
+        for d in self.L.LOCAL_MODEL_DIRS.values():
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "model.bin").write_bytes(b"x")
+
+    def test_english_keeps_english_models(self):
+        p = self.L.speech_plan("en", "base.en", "large-v3-turbo")
+        self.assertEqual(p, {"live": "base.en", "live_language": "en", "refine": "large-v3-turbo", "refine_language": "en"})
+
+    def test_hindi_switches_to_multilingual_models(self):
+        p = self.L.speech_plan("hi", "base.en", "distil-large-v3")
+        self.assertEqual((p["live"], p["live_language"], p["refine"], p["refine_language"]), ("base", "hi", "large-v3-turbo", "hi"))
+        self.assertEqual(self.L.speech_plan("auto", "small.en", "off")["refine"], "off")
+        self.assertIsNone(self.L.speech_plan("auto", "small.en", "off")["live_language"])
+
+    def test_hinglish_uses_oriserve_models_when_installed(self):
+        p = self.L.speech_plan("hinglish", "base.en", "large-v3-turbo")
+        self.assertEqual((p["live"], p["live_language"], p["refine"]), ("base", "hi", "large-v3-turbo"))   # not installed: Whisper + Hindi
+        self.install_hinglish()
+        p = self.L.speech_plan("hinglish", "base.en", "large-v3-turbo")
+        self.assertEqual(p, {"live": "hinglish-swift", "live_language": "en", "refine": "hinglish-apex", "refine_language": "en"})
+        self.assertEqual(self.L.speech_plan("hinglish", "base.en", "off")["refine"], "off")
+        self.assertEqual(self.L.speech_plan("bogus", "base.en", "large-v3-turbo")["live_language"], None)   # unknown -> auto
+
+    def test_notes_instructions(self):
+        self.assertIn("English", self.L.notes_instruction("en", "hinglish"))
+        self.assertIn("Roman script", self.L.notes_instruction("same", "hinglish"))
+        self.assertIn("Devanagari", self.L.notes_instruction("hi", "en"))
+        self.assertIn("main language", self.L.notes_instruction("same", "auto"))
+
+    def test_nan_hallucination_is_filtered(self):
+        from types import SimpleNamespace
+        from transcribe import keep_segment
+        seg = lambda text: SimpleNamespace(text=text, no_speech_prob=0.1, avg_logprob=-0.3)   # noqa: E731
+        self.assertFalse(keep_segment(seg(" nan")))
+        self.assertTrue(keep_segment(seg("Nanhi si baat hai.")))
+
+    def test_think_filter_drops_reasoning_even_when_split(self):
+        f = summarize.ThinkFilter()
+        pieces = ["<thi", "nk>let me plan</th", "ink>\n\nNotes ", "here <b>x</b> <", "thin", "g"]
+        self.assertEqual("".join(f.feed(p) for p in pieces) + f.flush(), "\n\nNotes here <b>x</b> <thing")
+        f = summarize.ThinkFilter()
+        self.assertEqual(f.feed("<think>never closed") + f.flush(), "")
+
+    def test_stream_drops_reasoning_before_unpaired_close_tag(self):
+        """Thinking-only models stream "reasoning…</think>answer" with no opening tag."""
+        from unittest import mock
+        lines = [json.dumps({"message": {"content": c}}).encode() for c in ["We are given", " stuff.\n</th", "ink>\n\n## Notes", "\n- a"]]
+        lines.append(json.dumps({"done": True}).encode())
+        resp = mock.Mock(iter_lines=lambda: iter(lines), raise_for_status=lambda: None)
+        with mock.patch.object(summarize.requests, "post", return_value=resp), \
+             mock.patch.object(summarize, "_can_think", return_value=True):
+            self.assertEqual(summarize._stream("m", []), "## Notes\n- a")
+
+    def test_set_meeting_language_api(self):
+        TestApi.setUpClass()
+        api = TestApi.api
+        mid = api._db.create_meeting("lang")
+        self.assertFalse(api.set_meeting_language(mid, "klingon"))
+        self.assertTrue(api.set_meeting_language(mid, "hi"))
+        self.assertEqual(api._meeting_language(mid), "hi")
+        api._meeting_id = mid                                   # mid-call: live transcriber follows
+        try:
+            api.set_meeting_language(mid, "en")
+            self.assertEqual((api._transcriber.model_name, api._transcriber.language), (api._settings["whisper_model"], "en"))
+            api.set_meeting_language(mid, "hi")
+            self.assertEqual((api._transcriber.model_name, api._transcriber.language), ("base", "hi"))
+        finally:
+            api._meeting_id = None
+        api.save_settings({"notes_language": "same"})
+        self.assertIn("Devanagari", api._notes_language(mid))     # follows the meeting (Hindi)
+        api.save_settings({"notes_language": "en"})
+        self.assertIn("English", api._notes_language(mid))
+        api.save_settings({"notes_language": "same"})
+
+
 class TestSpeakersAndHotkeys(unittest.TestCase):
     def test_best_match_threshold_and_margin(self):
         a = np.array([1, 0, 0], np.float32)
@@ -262,12 +349,15 @@ class TestSpeakersAndHotkeys(unittest.TestCase):
 
 class TestApi(unittest.TestCase):
     """Api methods that don't need audio devices, models or Ollama."""
+    api = None
 
     @classmethod
     def setUpClass(cls):
-        cls.api = app.Api()
-        cls.events = []
-        cls.api._emit = lambda kind, **k: cls.events.append((kind, k))
+        if cls.api is not None:
+            return
+        TestApi.api = app.Api()
+        TestApi.events = []
+        TestApi.api._emit = lambda kind, **k: TestApi.events.append((kind, k))
 
     def test_settings_roundtrip_and_unknown_keys(self):
         s = self.api.save_settings({"vocabulary": "LogiSys", "not_a_setting": 1, "hotkey_record": "ctrl+alt+n"})
@@ -275,6 +365,20 @@ class TestApi(unittest.TestCase):
         self.assertNotIn("not_a_setting", s)
         self.assertEqual(json.loads(app.SETTINGS_PATH.read_text())["vocabulary"], "LogiSys")
         self.assertEqual(self.api._transcriber.vocabulary, "LogiSys")
+
+    def test_settings_migration_moves_only_the_old_default_model(self):
+        original = app.SETTINGS_PATH.read_text() if app.SETTINGS_PATH.exists() else None
+        try:
+            app.SETTINGS_PATH.write_text(json.dumps({"ollama_model": "llama3.2:3b", "theme": "dark"}))
+            s = app.load_settings()
+            self.assertEqual((s["ollama_model"], s["theme"], s["settings_version"]), ("qwen3:4b-instruct", "dark", 2))
+            app.SETTINGS_PATH.write_text(json.dumps({"ollama_model": "mistral:7b"}))
+            self.assertEqual(app.load_settings()["ollama_model"], "mistral:7b")      # deliberate choice kept
+            app.SETTINGS_PATH.write_text(json.dumps({"ollama_model": "llama3.2:3b", "settings_version": 2}))
+            self.assertEqual(app.load_settings()["ollama_model"], "llama3.2:3b")     # chosen after the upgrade
+        finally:
+            if original is not None:
+                app.SETTINGS_PATH.write_text(original)
 
     def test_add_vocabulary_dedupes(self):
         self.api.save_settings({"vocabulary": "LogiSys, Priya"})

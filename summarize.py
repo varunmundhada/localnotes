@@ -16,11 +16,13 @@ Rules:
 - Use the user's own notes as the backbone: keep their headings and points, and expand them with specifics from the transcript.
 - Only state things supported by the transcript or the user's notes. Never invent names, numbers, or decisions.
 - Write in Markdown. Use short bullet points.
-- Write action items as a checklist: "- [ ] Owner: task". If there are none, write "None mentioned".
+- Write action items as a checklist: "- [ ] Owner: task". Only list tasks someone actually agreed or was asked
+  to do in the meeting — never suggest tasks of your own. If there are none, write "None mentioned".
 - Follow the requested structure exactly; omit a section only where it says it may be omitted."""
 
 CONDENSE = """Condense this part of a meeting transcript into detailed bullet points.
 Keep every decision, number, name, date, question, and commitment. Note who said what (Me/Them).
+The transcript may be in Hindi, English or a mix; keep names and figures exactly as spoken.
 
 Transcript part {i} of {n}:
 {chunk}"""
@@ -37,8 +39,13 @@ The user's rough notes taken during the meeting:
 {transcript}
 </transcript>
 
-Write the meeting notes now. Start with a one-line summary (no heading), then use this structure:
-{structure}"""
+Write the meeting notes now. {language}
+Start with a one-line summary (no heading), then use this structure (translate the section headings too):
+{structure}
+
+Action items must be commitments actually made in the transcript (someone said they will do something, or was
+asked to). Do not turn topics, opinions or facts into tasks. If nobody committed to anything, write only
+"None mentioned" under the action items heading."""
 
 DEFAULT_STRUCTURE = """## Key points
 ## Decisions (omit if none)
@@ -67,7 +74,7 @@ Tone: {tone}
 
 Write the follow-up email from me to the other attendees: thank them briefly, recap the key points and decisions,
 list action items with owners (and dates if mentioned), and state the next step. Keep it under 200 words.
-Sign off with my name if known."""
+Sign off with my name if known. {language}"""
 
 TONES = {
     "friendly": "warm and friendly, plain language",
@@ -101,17 +108,18 @@ def clean_notes(md: str) -> str:
 
 
 def followup_email(model: str, title: str, notes: str, transcript: str, me_name: str = "",
-                   tone: str = "friendly", on_token=None) -> str:
+                   tone: str = "friendly", on_token=None, language: str = "") -> str:
     prompt = FOLLOWUP.format(title=title, me_line=f"My name: {me_name}" if me_name else "",
                              tone=TONES.get(tone, TONES["friendly"]), notes=notes or "(no notes)",
-                             transcript=transcript[-12000:] or "(empty)")
+                             transcript=transcript[-12000:] or "(empty)", language=language)
     return _clean_greeting(_stream(model, [{"role": "system", "content": FOLLOWUP_SYSTEM},
                                            {"role": "user", "content": prompt}], on_token))
 
 
 ASK_SYSTEM = """You answer questions about one meeting using only its transcript and notes.
 "Me" is the user; "Them" is everyone else. Be direct and concise; use Markdown bullets when listing.
-If the answer isn't in the meeting, say so plainly. When asked to draft something (an email, a message), write it ready to send."""
+If the answer isn't in the meeting, say so plainly. When asked to draft something (an email, a message), write it ready to send.
+The meeting may be in Hindi, English or Hinglish. Answer in the language and script the question is asked in."""
 
 ASK_CONTEXT_CHARS = 40000
 
@@ -143,20 +151,76 @@ def _chat(model: str, prompt: str, on_token=None) -> str:
     return _stream(model, [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}], on_token)
 
 
+_thinking_models: dict[str, bool] = {}
+
+
+def _can_think(model: str) -> bool:
+    """Reasoning models (Qwen3, …) spend minutes "thinking" aloud unless told not to."""
+    if model not in _thinking_models:
+        try:
+            info = requests.post(f"{OLLAMA_URL}/api/show", json={"model": model}, timeout=5).json()
+            _thinking_models[model] = "thinking" in info.get("capabilities", [])
+        except Exception:
+            _thinking_models[model] = False
+    return _thinking_models[model]
+
+
+class ThinkFilter:
+    """Drops <think>…</think> blocks from a token stream, even when a tag is split across tokens."""
+    OPEN, CLOSE = "<think>", "</think>"
+
+    def __init__(self):
+        self.buf, self.inside = "", False
+
+    def feed(self, piece: str) -> str:
+        self.buf += piece
+        out = ""
+        while True:
+            if self.inside:
+                i = self.buf.find(self.CLOSE)
+                if i < 0:
+                    self.buf = self.buf[-len(self.CLOSE):]
+                    return out
+                self.buf, self.inside = self.buf[i + len(self.CLOSE):], False
+            else:
+                i = self.buf.find(self.OPEN)
+                if i >= 0:
+                    out += self.buf[:i]
+                    self.buf, self.inside = self.buf[i + len(self.OPEN):], True
+                    continue
+                j = self.buf.rfind("<")          # hold back what could be the start of "<think>"
+                if j >= 0 and self.OPEN.startswith(self.buf[j:]):
+                    out, self.buf = out + self.buf[:j], self.buf[j:]
+                else:
+                    out, self.buf = out + self.buf, ""
+                return out
+
+    def flush(self) -> str:
+        out = "" if self.inside else self.buf
+        self.buf = ""
+        return out
+
+
 def _stream(model: str, messages: list[dict], on_token=None) -> str:
-    resp = requests.post(
-        f"{OLLAMA_URL}/api/chat",
-        json={
-            "model": model,
-            "stream": True,
-            "messages": messages,
-            "options": {"num_ctx": 16384, "temperature": 0.2},
-        },
-        stream=True,
-        timeout=(5, 600),
-    )
+    payload = {"model": model, "stream": True, "messages": messages,
+               "options": {"num_ctx": 16384, "temperature": 0.2}}
+    if _can_think(model):
+        payload["think"] = False
+    resp = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, stream=True, timeout=(5, 600))
     resp.raise_for_status()
-    out = []
+    out, think = [], ThinkFilter()
+    started = False
+
+    def emit(text: str):
+        nonlocal started
+        if not started:                          # drop the blank lines a model leaves after its thinking
+            text = text.lstrip()
+            started = bool(text)
+        if text:
+            out.append(text)
+            if on_token:
+                on_token(text)
+
     for line in resp.iter_lines():
         if not line:
             continue
@@ -165,16 +229,21 @@ def _stream(model: str, messages: list[dict], on_token=None) -> str:
             raise RuntimeError(msg["error"])
         piece = msg.get("message", {}).get("content", "")
         if piece:
-            out.append(piece)
-            if on_token:
-                on_token(piece)
+            emit(think.feed(piece))
         if msg.get("done"):
             break
-    return "".join(out)
+    emit(think.flush())
+    text = "".join(out)
+    # Thinking-only models put "<think>" in the prompt template, so the stream carries just the closing
+    # tag: everything before it is reasoning, not answer.
+    if ThinkFilter.CLOSE in text:
+        text = text.rsplit(ThinkFilter.CLOSE, 1)[1].lstrip()
+    return text
 
 
 def generate_notes(model: str, title: str, user_notes: str, transcript: str,
-                   on_token=None, on_progress=None, me_name: str = "", structure: str = "") -> str:
+                   on_token=None, on_progress=None, me_name: str = "", structure: str = "",
+                   language: str = "") -> str:
     on_progress = on_progress or (lambda s: None)
     if not transcript.strip() and not user_notes.strip():
         return "_Nothing was recorded or written for this meeting._"
@@ -192,7 +261,7 @@ def generate_notes(model: str, title: str, user_notes: str, transcript: str,
         model,
         FINAL.format(title=title, me_line=f'"Me" in the transcript is {me_name}.\n' if me_name else "",
                      notes=user_notes.strip() or "(none)", label=label,
-                     structure=structure.strip() or DEFAULT_STRUCTURE,
+                     structure=structure.strip() or DEFAULT_STRUCTURE, language=language,
                      transcript=transcript or "(no audio transcribed)"),
         on_token=on_token,
     )

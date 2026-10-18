@@ -11,7 +11,9 @@ publishers by `setup.ps1` or on first use. Their licences apply to those downloa
 | Whisper base.en, large-v3-turbo (CTranslate2 conversions) | Speech-to-text | Hugging Face (Systran, mobiuslabsgmbh) | MIT |
 | pyannote segmentation-3.0 (ONNX export) | Speaker segmentation | k2-fsa/sherpa-onnx releases | MIT |
 | NVIDIA NeMo TitaNet small (ONNX export) | Speaker embeddings | k2-fsa/sherpa-onnx releases | CC-BY-4.0 |
-| Llama 3.2 3B | Notes, Ask, follow-up emails | Ollama registry | Llama 3.2 Community License |
+| Oriserve Whisper-Hindi2Hinglish Apex & Swift (converted locally to CTranslate2) | Hinglish speech-to-text | Hugging Face (Oriserve) | Apache-2.0 |
+| Qwen3 4B Instruct | Notes, Ask, follow-up emails | Ollama registry | Apache-2.0 |
+| Llama 3.2 3B (optional, previous default) | Notes, Ask, follow-up emails | Ollama registry | Llama 3.2 Community License |
 
 ## Python packages
 

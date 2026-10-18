@@ -398,6 +398,7 @@ function renderChips() {
     if (speakers.size) chips.push(`<span class="chip">${ic("users")}${esc([...speakers].sort().join(" + "))}</span>`);
   }
   chips.push(templateChip(m));
+  chips.push(languageChip(m));
   $("chips").innerHTML = chips.join("");
 }
 
@@ -430,6 +431,39 @@ function templateChip(m) {
   const tpl = S.templates.find((t) => t.id === m.template_id) || S.templates.find((t) => t.id === "general");
   return `<button class="chip clickable tpl-chip" data-act="template" title="Note template — click to change">${ic(tpl?.icon || "file")}${esc(tpl?.name || "Template")}<svg class="i chev"><use href="#i-chev"/></svg></button>`;
 }
+// ---------------------------------------------------------------- meeting language
+const LANG_SHORT = { en: "English", hinglish: "Hinglish", hi: "Hindi", auto: "Auto language" };
+function meetingLanguage(m) { return m.language || S.settings.meeting_language || "en"; }
+function languageChip(m) {
+  return `<button class="chip clickable" data-act="language" title="Meeting language — click to change">${ic("chat")}${esc(LANG_SHORT[meetingLanguage(m)] || "Language")}<svg class="i chev"><use href="#i-chev"/></svg></button>`;
+}
+function openLanguageMenu(anchor) {
+  const m = S.meeting; if (!m) return;
+  const cur = meetingLanguage(m), live = m.id === S.recordingId;
+  const menu = $("menu");
+  menu.innerHTML = `<div class="people-title">Meeting language</div>` + Object.entries(S.languages || LANG_SHORT).map(([code, label]) => `
+      <button class="tpl-item" data-lang="${esc(code)}"><span class="t-body"><span class="t-name">${esc(label)}</span>
+        ${code === "hinglish" && !S.hinglishModels ? `<span class="t-desc">Hinglish speech model not installed — using Whisper (Hindi)</span>` : ""}</span>
+        <span class="t-check">${code === cur ? ic("check") : ""}</span></button>`).join("") +
+    `<div class="people-hint">${live ? "The live transcript switches from the next sentence." : "Used for the transcript and the notes."}</div>`;
+  menu.hidden = false;
+  const r = anchor.getBoundingClientRect();
+  menu.style.top = `${r.bottom + 6}px`;
+  menu.style.left = `${Math.max(12, Math.min(window.innerWidth - menu.offsetWidth - 12, r.left))}px`;
+  menu.querySelector("button")?.focus({ preventScroll: true });
+  menu.onclick = async (ev) => {
+    const b = ev.target.closest("[data-lang]"); if (!b) return;
+    closeMenu();
+    if (b.dataset.lang === cur) return;
+    await api.set_meeting_language(m.id, b.dataset.lang);
+    m.language = b.dataset.lang; renderChips();
+    const name = LANG_SHORT[b.dataset.lang];
+    if (live) toast(`Live transcript switched to ${name}`);
+    else if (m.ai_notes) toast(`Language set to ${name}`, { timeout: 8000, action: { label: "Rewrite notes", run: generate } });
+    else toast(`Language set to ${name}`);
+  };
+}
+
 function openTemplateMenu(anchor) {
   const m = S.meeting; if (!m) return;
   const menu = $("menu");
@@ -720,6 +754,7 @@ $("chips").addEventListener("click", (e) => {
   const c = e.target.closest("[data-act]"); if (!c) return;
   if (c.dataset.act === "people") openPeople(c);
   else if (c.dataset.act === "template") openTemplateMenu(c);
+  else if (c.dataset.act === "language") openLanguageMenu(c);
 });
 
 $("tab-transcript").addEventListener("scroll", (e) => {
@@ -1088,6 +1123,9 @@ async function openSettings(section) {
   const dlg = $("settings");
   await renderTemplates();
   $("enc-title").textContent = st.encrypted ? "Encrypted on this PC" : "Not encrypted";
+  S.hinglishModels = st.hinglish_models;
+  $("language-line").textContent = "Default for new meetings — change it on any meeting from its language tag." +
+    (st.hinglish_models ? "" : " Hinglish works best with the Hinglish speech models: run tools\\build_hinglish_model.ps1.");
   $("app-version").textContent = `LocalNotes v${st.version}`;
   const hk = $("hotkey-warning");
   hk.hidden = !st.hotkeys_failed?.length;
@@ -1461,6 +1499,7 @@ window.addEventListener("pywebviewready", async () => {
   S.recordingId = st.recording ? st.meeting_id : null;
   S.recStarted = st.recording_started;
   S.pausedAt = st.paused_at; S.pausedTotal = st.paused_total || 0;
+  S.languages = st.languages; S.hinglishModels = st.hinglish_models;
   S.templates = await api.list_templates();
   if (st.hotkeys_failed?.length) window.onEvent({ type: "hotkey_failed", combos: st.hotkeys_failed });
   S.detected = st.detected;

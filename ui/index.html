@@ -172,6 +172,13 @@
     </div>
     <div class="set-section" id="sec-transcription">
       <h3>Transcription</h3>
+      <div class="row"><div class="row-text"><b>Meeting language</b><span id="language-line">Default for new meetings — change it on any meeting from its language tag.</span></div>
+        <select name="meeting_language">
+          <option value="en">English</option>
+          <option value="hinglish">Hinglish (Hindi + English)</option>
+          <option value="hi">Hindi</option>
+          <option value="auto">Auto-detect</option>
+        </select></div>
       <div class="row"><div class="row-text"><b>Live transcript model</b><span>Runs during the call.</span></div>
         <select name="whisper_model">
           <option value="tiny.en">Tiny — lightest</option>
@@ -202,6 +209,13 @@
     <div class="set-section" id="sec-ai">
       <h3>AI &amp; templates</h3>
       <div class="row"><div class="row-text"><b>Write notes automatically</b><span>As soon as the call ends.</span></div><label class="switch"><input type="checkbox" name="auto_notes"></label></div>
+      <div class="row"><div class="row-text"><b>Write notes in</b><span>Notes, follow-up emails and summaries. Ask always answers in the language you ask in.</span></div>
+        <select name="notes_language">
+          <option value="same">Same as the meeting</option>
+          <option value="en">English</option>
+          <option value="hinglish">Hinglish</option>
+          <option value="hi">Hindi</option>
+        </select></div>
       <div class="row"><div class="row-text"><b>Default template</b><span>“Auto” picks one from the meeting title — e.g. “1:1”, “standup”, “interview”, “demo”.</span></div>
         <select name="default_template" id="default-template"></select></div>
       <div class="row" style="padding-bottom:4px"><div class="row-text"><b>Templates</b><span>Your own note formats. Built-ins can be used as a starting point.</span></div>

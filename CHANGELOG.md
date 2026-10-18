@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Hindi and Hinglish meetings.** A meeting language (Auto / English / Hindi / Hinglish) — a default in
+  Settings and a language chip on every meeting, switchable mid-call. Hinglish uses Oriserve's
+  Whisper-Hindi2Hinglish models (Swift live, Apex after the call), converted locally by
+  `tools/build_hinglish_model.ps1`; Hindi uses multilingual Whisper with an explicit language hint instead of
+  unreliable auto-detection. A "Write notes in" setting produces English, Hindi or Hinglish notes from any meeting.
+- Notes model is now Qwen3 4B Instruct, which understands and writes Hindi/Hinglish (Llama 3.2 3B couldn't).
+  Existing installs on the old default are moved over automatically. Reasoning ("thinking") output from
+  thinking models is kept out of the notes.
 - New app logo and icons: sidebar, window and taskbar, tray (turns red while recording), shortcuts and README.
   Generated from `logo.py`, so every size and format comes from the same shapes.
 - LocalNotes now has its own taskbar identity instead of grouping under Python.
@@ -28,6 +36,8 @@ All notable changes to this project are documented here. The format follows
   edit hint on hover, and menus flip upward near the bottom of the window.
 
 ### Fixed
+- The AI no longer invents action items when nobody committed to anything.
+- Whisper's "nan" hallucination on near-silent audio is filtered out.
 - After the accuracy pass, transcript lines could merge several people's speech into one ~30 s line, losing
   speaker names. The pass now transcribes each speaker turn separately, so every line belongs to one voice.
 - Starting a new recording while the previous call was still being processed could silently drop the new
